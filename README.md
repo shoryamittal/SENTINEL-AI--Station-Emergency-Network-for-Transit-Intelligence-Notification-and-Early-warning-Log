@@ -1,4 +1,4 @@
-# PREEMPT AI - Platform Change Event Detection System
+# SENTINEL AI - Platform Change Event Detection System
 
 A real-time crowd monitoring and management system for platform change events at railway stations. Built with free, state-of-the-art AI tools for high-accuracy crowd density detection and situation assessment.
 
