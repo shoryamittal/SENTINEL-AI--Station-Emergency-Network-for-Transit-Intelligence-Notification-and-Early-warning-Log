@@ -19,7 +19,7 @@ from threading import Lock
 from typing import Any
 
 from .connectivity import ConnectivityManager
-from .persistence import IncidentJournal, SyncStatus
+from .persistence import IncidentJournal, LocalStatus, SyncStatus
 
 
 def _utc_now_iso() -> str:
@@ -38,6 +38,9 @@ class ContinuityMetricsSnapshot:
     events_generated: int
     events_persisted: int
     events_local_delivered: int
+    events_local_delivery_pending: int
+    events_local_unacknowledged: int
+    events_local_acknowledged: int
 
     events_pending: int
     events_syncing: int
@@ -63,6 +66,9 @@ class ContinuityMetricsSnapshot:
             "events_generated": self.events_generated,
             "events_persisted": self.events_persisted,
             "events_local_delivered": self.events_local_delivered,
+            "events_local_delivery_pending": self.events_local_delivery_pending,
+            "events_local_unacknowledged": self.events_local_unacknowledged,
+            "events_local_acknowledged": self.events_local_acknowledged,
             "events_pending": self.events_pending,
             "events_syncing": self.events_syncing,
             "events_synced": self.events_synced,
@@ -133,6 +139,7 @@ class ContinuityMetrics:
     # ------------------------------------------------------------------
     def snapshot(self) -> ContinuityMetricsSnapshot:
         counts = self.journal.count_by_sync_status()
+        local_counts = self.journal.count_by_local_status()
         pending = counts.get(SyncStatus.PENDING, 0)
         syncing = counts.get(SyncStatus.SYNCING, 0)
         synced = counts.get(SyncStatus.SYNCED, 0)
@@ -155,6 +162,9 @@ class ContinuityMetrics:
                 events_generated=events_generated,
                 events_persisted=events_persisted,
                 events_local_delivered=self._events_local_delivered,
+                events_local_delivery_pending=local_counts.get(LocalStatus.PERSISTED, 0),
+                events_local_unacknowledged=local_counts.get(LocalStatus.LOCAL_DELIVERED, 0),
+                events_local_acknowledged=local_counts.get(LocalStatus.LOCAL_ACKNOWLEDGED, 0),
                 events_pending=pending,
                 events_syncing=syncing,
                 events_synced=synced,

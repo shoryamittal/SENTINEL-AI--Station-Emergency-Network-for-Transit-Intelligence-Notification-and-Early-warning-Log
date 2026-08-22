@@ -62,7 +62,7 @@ class LocalAlertCenter:
         self._history: deque[LocalAlert] = deque(maxlen=history_length)
         self.remote_notifier = remote_notifier
 
-    def raise_alert(self, candidate: IncidentCandidate) -> LocalAlert:
+    def raise_alert(self, candidate: IncidentCandidate, notify_remote: bool = True) -> LocalAlert:
         alert = LocalAlert(
             event_id=candidate.event_id,
             severity=candidate.severity.value,
@@ -77,7 +77,7 @@ class LocalAlertCenter:
 
         # Best-effort, optional, and isolated: never let a remote notifier
         # failure propagate back through the local alert path.
-        if self.remote_notifier is not None:
+        if notify_remote and self.remote_notifier is not None:
             try:
                 self.remote_notifier(candidate)
             except Exception:
@@ -92,6 +92,11 @@ class LocalAlertCenter:
     def latest(self) -> dict[str, Any] | None:
         with self._lock:
             return self._history[0].to_dict() if self._history else None
+
+    def has_live_alert(self, event_id: str) -> bool:
+        """Whether this process presented the event as a live local alert."""
+        with self._lock:
+            return any(alert.event_id == event_id for alert in self._history)
 
 
 def optional_fast2sms_notifier(station_name: str = "Central Station"):

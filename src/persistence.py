@@ -38,6 +38,7 @@ class LocalStatus:
     CREATED = "CREATED"
     PERSISTED = "PERSISTED"
     LOCAL_DELIVERED = "LOCAL_DELIVERED"
+    LOCAL_ACKNOWLEDGED = "LOCAL_ACKNOWLEDGED"
 
 
 class SyncStatus:
@@ -285,7 +286,38 @@ class IncidentJournal:
                 raise
 
     def mark_local_delivered(self, event_id: str) -> None:
-        self._update(event_id, "local_status = ?", (LocalStatus.LOCAL_DELIVERED,))
+        # Do not let a retry/recovery path undo an operator acknowledgement.
+        with self._write_lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                conn.execute(
+                    "UPDATE events SET local_status = ? WHERE event_id = ? AND local_status = ?;",
+                    (LocalStatus.LOCAL_DELIVERED, event_id, LocalStatus.PERSISTED),
+                )
+                conn.execute("COMMIT;")
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
+
+    def mark_local_acknowledged(self, event_id: str) -> bool:
+        """Acknowledge an already delivered local warning.
+
+        This intentionally touches only ``local_status``.  Remote transport
+        state is an independent lifecycle and must remain byte-for-byte
+        unchanged by an operator acknowledgement.
+        """
+        with self._write_lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                cursor = conn.execute(
+                    "UPDATE events SET local_status = ? WHERE event_id = ? AND local_status = ?;",
+                    (LocalStatus.LOCAL_ACKNOWLEDGED, event_id, LocalStatus.LOCAL_DELIVERED),
+                )
+                conn.execute("COMMIT;")
+                return cursor.rowcount > 0
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
 
     def mark_sync_pending(self, event_id: str) -> None:
         self._update(event_id, "sync_status = ?", (SyncStatus.PENDING,))
@@ -405,6 +437,24 @@ class IncidentJournal:
             rows = conn.execute("SELECT * FROM events WHERE sync_status = ? ORDER BY created_at_utc ASC LIMIT ?", (SyncStatus.AUTH_BLOCKED, limit)).fetchall()
             return [_row_to_record(row) for row in rows]
 
+    def list_local_delivery_pending_events(self, limit: int = 50) -> list[EventRecord]:
+        """Rows committed before a process died during local delivery."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE local_status = ? ORDER BY created_at_utc ASC LIMIT ?;",
+                (LocalStatus.PERSISTED, limit),
+            ).fetchall()
+            return [_row_to_record(row) for row in rows]
+
+    def list_unacknowledged_local_events(self, limit: int = 50) -> list[EventRecord]:
+        """Durable local-warning history awaiting an operator acknowledgement."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM events WHERE local_status = ? ORDER BY created_at_utc DESC LIMIT ?;",
+                (LocalStatus.LOCAL_DELIVERED, limit),
+            ).fetchall()
+            return [_row_to_record(row) for row in rows]
+
     def get_recent_events(self, limit: int = 50) -> list[EventRecord]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -419,4 +469,9 @@ class IncidentJournal:
     def count_by_sync_status(self) -> dict[str, int]:
         with self._connect() as conn:
             rows = conn.execute("SELECT sync_status, COUNT(*) FROM events GROUP BY sync_status;").fetchall()
+            return {row[0]: row[1] for row in rows}
+
+    def count_by_local_status(self) -> dict[str, int]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT local_status, COUNT(*) FROM events GROUP BY local_status;").fetchall()
             return {row[0]: row[1] for row in rows}

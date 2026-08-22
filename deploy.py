@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from threading import Event, Lock, Thread
 
@@ -46,10 +47,10 @@ from src.alerts import LocalAlertCenter, optional_fast2sms_notifier
 from src.camera import FrameSource
 from src.config import RuntimeConfig
 from src.connectivity import ConnectivityManager, ConnectivityState
-from src.contracts import CameraHealth, SourceMode
+from src.contracts import CameraHealth, IncidentCandidate, Scenario, Severity, SourceMode
 from src.detector import PersonDetector
 from src.metrics import ContinuityMetrics
-from src.persistence import IncidentJournal
+from src.persistence import IncidentJournal, LocalStatus
 from src.sync import HttpSyncAdapter, MockSyncAdapter, SyncWorker
 
 app = Flask(__name__)
@@ -306,6 +307,46 @@ def _candidate_is_current(candidate) -> bool:
     )
 
 
+def _candidate_from_record(record) -> IncidentCandidate:
+    """Rebuild a contract candidate from its immutable persisted payload."""
+    payload = record.payload
+    return IncidentCandidate(
+        event_id=payload["event_id"],
+        created_at_utc=datetime.fromisoformat(payload["created_at_utc"]),
+        severity=Severity(payload["severity"]),
+        primary_scenario=Scenario(payload["primary_scenario"]),
+        contributing_conditions=tuple(Scenario(value) for value in payload["contributing_conditions"]),
+        hotspot=payload["hotspot"],
+        load_anomaly=payload["load_anomaly"],
+        accumulation=payload["accumulation"],
+        redistribution=payload["redistribution"],
+        recommended_action=payload["recommended_action"],
+        action_code=payload["action_code"],
+        model_version=payload["model_version"],
+        source_mode=SourceMode(payload["source_mode"]) if payload.get("source_mode") else None,
+        frame_id=payload.get("frame_id"),
+    )
+
+
+def recover_local_delivery() -> int:
+    """Finish local work stranded after SQLite commit without replaying history.
+
+    Only a currently matching, fresh runtime incident is placed in the live
+    presentation helper.  Every recovered row is marked delivered so a crash
+    window can never leave it permanently PERSISTED.  Historical recovery
+    deliberately skips the optional external notifier.
+    """
+    recovered = 0
+    for record in journal.list_local_delivery_pending_events():
+        candidate = _candidate_from_record(record)
+        if _candidate_is_current(candidate):
+            alert_center.raise_alert(candidate, notify_remote=False)
+        journal.mark_local_delivered(candidate.event_id)
+        metrics.record_local_delivered()
+        recovered += 1
+    return recovered
+
+
 def _deliver_persisted_incident(candidate) -> None:
     """Perform local handling after the runtime has already committed it."""
     if _candidate_is_current(candidate):
@@ -391,6 +432,7 @@ def initialize_system() -> None:
         # renewed 401/403 blocks again rather than creating a retry storm.
         sync_worker.resume_after_auth_refresh()
     runtime.start()
+    recover_local_delivery()
     connectivity.start()
     sync_worker.start()
 
@@ -538,6 +580,11 @@ HTML_TEMPLATE = """
   .response-block { background:#0f172a; border:1px solid #263248; border-left:3px solid #34d399; border-radius:.5rem; padding:.7rem .85rem; }
   .response-action { font-size:.92rem; font-weight:700; color:#f1f5f9; }
   .response-zone { font-size:.75rem; color:#94a3b8; margin-top:.3rem; }
+  .local-alert { background:#0f172a; border:1px solid #334155; border-left:3px solid #f87171; border-radius:.5rem; padding:.75rem; margin-bottom:.65rem; }
+  .local-alert.acknowledged { border-left-color:#34d399; opacity:.8; }
+  .local-alert-title { font-weight:800; font-size:.9rem; }
+  .local-alert-meta { font-size:.75rem; color:#94a3b8; margin-top:.25rem; }
+  .ack-btn { margin-top:.6rem; background:#1d4ed8; border:0; border-radius:.35rem; color:#fff; cursor:pointer; font-weight:700; font-size:.72rem; padding:.45rem .7rem; }
 </style>
 </head>
 <body>
@@ -694,6 +741,11 @@ HTML_TEMPLATE = """
     </div>
 
     <div class="card full-row">
+      <h2>Local Warning</h2>
+      <div id="local-alerts-body">No local warnings.</div>
+    </div>
+
+    <div class="card full-row">
       <h2>Recent Events</h2>
       <table class="events-table">
         <thead><tr><th>Created</th><th>Severity</th><th>Scenario</th><th>Hotspot</th><th>Local</th><th>Sync</th><th>Retries</th></tr></thead>
@@ -717,7 +769,7 @@ function beep() {
   } catch (e) { /* audio unsupported/blocked -- local visual alert already fired */ }
 }
 
-let lastAlertId = null;
+const soundedAlertStoragePrefix = 'sentinel-audible-event:';
 
 function fmtMs(ms) {
   if (ms === null || ms === undefined || !isFinite(ms)) return '--';
@@ -973,6 +1025,20 @@ function render(data) {
   document.getElementById('m-auth-blocked').textContent = metrics.events_auth_blocked;
   document.getElementById('remote-sync-state').textContent = metrics.events_auth_blocked ? 'AUTH BLOCKED' : 'READY';
 
+  // --- Durable local operator warnings ---
+  const localAlerts = data.local_alerts || [];
+  document.getElementById('local-alerts-body').innerHTML = localAlerts.map(function (e) {
+    const acknowledged = e.local_status === 'LOCAL_ACKNOWLEDGED';
+    return '<div class="local-alert ' + (acknowledged ? 'acknowledged' : '') + '">' +
+      '<div class="local-alert-title">' + e.severity + ' &mdash; ' + e.primary_scenario + '</div>' +
+      '<div class="local-alert-meta">Hotspot: ' + (e.hotspot || '--') + ' &middot; Event: ' + e.event_id + '</div>' +
+      '<div class="local-alert-meta">Recommended response: ' + (e.recommended_action || '--') + '</div>' +
+      '<div class="local-alert-meta">Status: ' + (acknowledged ? 'ACKNOWLEDGED / HISTORY' : 'ACTIVE / UNACKNOWLEDGED') +
+      ' &middot; Remote: ' + e.sync_status + '</div>' +
+      (acknowledged ? '' : '<button class="ack-btn" onclick="acknowledgeAlert(\'' + e.event_id + '\')">ACKNOWLEDGE</button>') +
+      '</div>';
+  }).join('') || 'No local warnings.';
+
   // --- Recent events table ---
   const rows = (data.recent_events || []).map(function(e) {
     return '<tr><td>' + fmtAgo(e.created_at_utc) + '</td><td>' + e.severity + '</td><td>' + e.primary_scenario +
@@ -982,11 +1048,19 @@ function render(data) {
   document.getElementById('events-body').innerHTML = rows.join('') || '<tr><td colspan="7">No events yet.</td></tr>';
 
   // --- Local alert (audible cue on new RED/BLACK, works with zero Internet) ---
-  const alerts = data.local_alerts || [];
-  if (alerts.length && alerts[0].event_id !== lastAlertId) {
-    lastAlertId = alerts[0].event_id;
-    if (alerts[0].audible) beep();
-  }
+  localAlerts.forEach(function (alert) {
+    const key = soundedAlertStoragePrefix + alert.event_id;
+    if (alert.audible && !localStorage.getItem(key)) {
+      localStorage.setItem(key, '1');
+      beep();
+    }
+  });
+}
+
+function acknowledgeAlert(eventId) {
+  fetch('/alerts/' + encodeURIComponent(eventId) + '/ack', { method: 'POST' }).then(function () {
+    updateUI();
+  }).catch(function () {});
 }
 
 function forceConnectivity(state) {
@@ -1126,7 +1200,18 @@ def status():
             "runtime_health": runtime.get_runtime_health(),
             "connectivity": connectivity.snapshot().to_dict(),
             "metrics": metrics.snapshot().to_dict(),
-            "local_alerts": alert_center.recent(10),
+            # SQLite, not the in-memory presentation deque, is the durable
+            # dashboard history.  ``audible`` only applies to alerts made
+            # live by this process; historical rows never become new alarms.
+            "local_alerts": [
+                {
+                    **record.to_dict(),
+                    "audible": record.severity in ("RED", "BLACK")
+                    and alert_center.has_live_alert(record.event_id),
+                }
+                for record in journal.get_recent_events(15)
+                if record.local_status != LocalStatus.PERSISTED
+            ],
             "recent_events": [record.to_dict() for record in journal.get_recent_events(15)],
             "operating_mode": _operating_mode,
             "simulation_source_name": _simulation_source_name,
@@ -1215,6 +1300,22 @@ def events_recent():
 def events_pending():
     limit = max(1, min(200, request.args.get("limit", 50, type=int) or 50))
     return jsonify([record.to_dict() for record in journal.list_pending_events(limit)])
+
+
+@app.route("/alerts/<event_id>/ack", methods=["POST"])
+def acknowledge_local_alert(event_id: str):
+    record = journal.get_event(event_id)
+    if record is None:
+        return jsonify({"success": False, "error": "unknown event"}), 404
+    if record.local_status == LocalStatus.PERSISTED:
+        return jsonify({"success": False, "error": "local delivery is not complete"}), 409
+    if record.local_status == LocalStatus.LOCAL_ACKNOWLEDGED:
+        return jsonify({"success": True, "event_id": event_id, "local_status": record.local_status})
+    if record.local_status != LocalStatus.LOCAL_DELIVERED:
+        return jsonify({"success": False, "error": "invalid local alert state"}), 409
+    journal.mark_local_acknowledged(event_id)
+    updated = journal.get_event(event_id)
+    return jsonify({"success": True, "event_id": event_id, "local_status": updated.local_status})
 
 
 @app.route("/debug/connectivity", methods=["POST"])
