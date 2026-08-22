@@ -326,3 +326,64 @@ def test_simulation_mode_survives_when_not_exhausted(monkeypatch, tiny_video):
         monkeypatch.setattr(deploy, "runtime", original_runtime)
         deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
         deploy._simulation_loop_count = 0
+
+
+# ----------------------------------------------------------------------
+# Frame-identity regression guard for the bundled competition clip.
+#
+# Confirms the exact invariant this suite must never silently lose: the
+# frame the pipeline reports on is genuinely the frame it just decoded
+# (not stale, not off-by-one, not swapped with a different source), and
+# the reported people_count is genuinely len(detections) for that frame
+# -- never a hard-coded/estimated/multiplied value. Uses the real
+# PersonDetector at exact production settings (yolov8n.pt, conf=0.5,
+# imgsz=960) against the real bundled clip, not a synthetic fixture,
+# because this specific risk (frame/count desync) can only be observed
+# against real decoded video content.
+# ----------------------------------------------------------------------
+def test_simulation_people_count_matches_real_detections_for_bundled_clip():
+    from src.detector import PersonDetector
+
+    video_path = "data/demo/crowd_station.mp4"
+    detector = PersonDetector("yolov8n.pt", confidence_threshold=0.5, inference_size=960)
+    runtime = SentinelRuntime(
+        FrameSource(SourceMode.VIDEO, video_path),
+        detector,
+        RuntimeConfig(calibration_samples=1),
+    )
+    assert runtime.source.start() is True
+    try:
+        snapshot = None
+        for _ in range(3):
+            snapshot = runtime.process_once()
+            assert snapshot is not None
+        # snapshot is now for the 3rd decoded frame (frame_id == 3). Decode
+        # that same frame independently, from a fresh capture, and detect
+        # on it directly -- proving the pipeline analyzed the frame it
+        # claims to have analyzed, not a different or stale one.
+        assert snapshot.source_mode == SourceMode.VIDEO
+        assert snapshot.frame_id == 3
+
+        independent_cap = None
+        try:
+            import cv2
+
+            independent_cap = cv2.VideoCapture(video_path)
+            frame = None
+            for _ in range(3):
+                ok, frame = independent_cap.read()
+                assert ok
+        finally:
+            if independent_cap is not None:
+                independent_cap.release()
+
+        independent_detections, _ = detector.detect(frame)
+        # The count the pipeline reported for frame_id 3 must equal a
+        # completely independent re-detection on that exact same decoded
+        # frame -- not an approximation, not a fake/estimated correction.
+        assert snapshot.people_count == len(independent_detections)
+        # And the occupancy layer must never lose or fabricate a person:
+        # summing the reported grid must equal the reported count exactly.
+        assert sum(sum(row) for row in snapshot.occupancy_grid) == snapshot.people_count
+    finally:
+        runtime.source.stop()
