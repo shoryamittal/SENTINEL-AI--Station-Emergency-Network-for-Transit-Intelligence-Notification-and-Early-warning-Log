@@ -49,7 +49,7 @@ from src.connectivity import ConnectivityManager, ConnectivityState
 from src.contracts import SourceMode
 from src.metrics import ContinuityMetrics
 from src.persistence import IncidentJournal
-from src.sync import MockSyncAdapter, SyncWorker
+from src.sync import HttpSyncAdapter, MockSyncAdapter, SyncWorker
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
@@ -90,6 +90,9 @@ STATION_NAME = os.environ.get("STATION_NAME", "Central Station")
 CAMERA_SOURCE = os.environ.get("CAMERA_SOURCE", "0")
 DB_PATH = os.environ.get("SENTINEL_DB_PATH", str(Path("data") / "sentinel.db"))
 SYNC_ADAPTER_MODE = os.environ.get("SYNC_ADAPTER_MODE", MockSyncAdapter.NORMAL)
+SYNC_ADAPTER_TYPE = os.environ.get("SYNC_ADAPTER_TYPE", "MOCK").upper()
+SYNC_ENDPOINT_URL = os.environ.get("SYNC_ENDPOINT_URL", "")
+SYNC_HTTP_TIMEOUT_S = _env_float("SYNC_HTTP_TIMEOUT_S", 2.0)
 CONNECTIVITY_INTERVAL_S = _env_float("CONNECTIVITY_CHECK_INTERVAL_S", 5.0)
 ENABLE_FAST2SMS = os.environ.get("ENABLE_FAST2SMS", "0") == "1"
 
@@ -109,6 +112,12 @@ runtime_config = RuntimeConfig(
 journal = IncidentJournal(DB_PATH)
 connectivity = ConnectivityManager(interval_s=CONNECTIVITY_INTERVAL_S)
 sync_adapter = MockSyncAdapter(mode=SYNC_ADAPTER_MODE)
+if SYNC_ADAPTER_TYPE == "HTTP":
+    if not SYNC_ENDPOINT_URL:
+        raise RuntimeError("SYNC_ENDPOINT_URL is required when SYNC_ADAPTER_TYPE=HTTP")
+    sync_adapter = HttpSyncAdapter(SYNC_ENDPOINT_URL, timeout_s=SYNC_HTTP_TIMEOUT_S)
+elif SYNC_ADAPTER_TYPE != "MOCK":
+    raise RuntimeError("SYNC_ADAPTER_TYPE must be MOCK or HTTP")
 metrics = ContinuityMetrics(journal, connectivity)
 alert_center = LocalAlertCenter(
     remote_notifier=optional_fast2sms_notifier(STATION_NAME) if ENABLE_FAST2SMS else None

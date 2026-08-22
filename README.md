@@ -72,7 +72,7 @@ Flow Conflict (F) and tracker-based counterflow analysis are future work / under
 - Historical sync does not create a new live alert.
 - Runtime-derived continuity metrics expose persisted, delivered, synchronized, and lost-event counts.
 
-The repository currently uses `MockSyncAdapter` for deterministic development and qualification testing. A production operator-controlled remote synchronization backend is not included in this MVP.
+`MockSyncAdapter` remains the default for deterministic development and demo fault injection. An optional localhost-only HTTP qualification backend (`python qualification_server.py`) can prove server-side `event_id` uniqueness, including the timeout-after-server-success recovery case: a retry of the same UUID receives `ALREADY_ACCEPTED` and does not create a second remote row. It is a reference/qualification service, **not** production cloud infrastructure. Production deployment still requires authenticated, operator-controlled remote synchronization infrastructure.
 
 The default prototype connectivity probe uses a public reachability endpoint. A production deployment should instead use an operator-controlled service or health endpoint.
 
@@ -88,6 +88,15 @@ python deploy.py
 Open the operator dashboard at [http://localhost:5000](http://localhost:5000).
 
 `python main.py` is an optional local Safety Plane CLI. It has no persistence or connectivity wiring; use `deploy.py` for the Round 2 demo.
+
+To run the optional qualification protocol demo in a second local terminal:
+
+```bash
+python qualification_server.py
+SYNC_ADAPTER_TYPE=HTTP SYNC_ENDPOINT_URL=http://127.0.0.1:5051/api/events python deploy.py
+```
+
+The server binds to `127.0.0.1` by default and is intentionally unauthenticated for local qualification only.
 
 ## Qualification demo loop
 
@@ -111,11 +120,11 @@ A physical WAN disconnect demonstrates real loss of reachability. The debug over
 | --- | --- |
 | Implemented | YOLOv8 person detection; camera/video input; 4×6 occupancy mapping; Occupancy Index; adaptive baseline; L/A/R signals; scenario engine; severity hysteresis; local recommendations |
 | Implemented | Flask operator dashboard; SQLite WAL persistence; zero-network local alerts; connectivity state machine; store-and-forward recovery; exponential backoff; idempotent event IDs; stale-alert protection; deterministic offline tests |
-| Prototype / demo | Public reachability connectivity probe; `MockSyncAdapter`; optional best-effort Fast2SMS notifier; manual connectivity override |
+| Prototype / demo | Public reachability connectivity probe; `MockSyncAdapter`; localhost qualification HTTP backend; optional best-effort Fast2SMS notifier; manual connectivity override |
 | Future work | Calibrated people/m²; Flow Conflict F; tracker-based counterflow; production remote backend; operator-controlled health endpoint; advanced prediction; digital twin; rail-system integration |
 
 ## Configuration
 
-Copy `.env.example` to `.env` to configure the camera source, local YOLO model, occupancy grid, local SQLite path, and continuity demo controls. `SYNC_ADAPTER_MODE` is DEVELOPMENT / DEMO fault injection only; `MockSyncAdapter` is not a production cloud backend.
+Copy `.env.example` to `.env` to configure the camera source, local YOLO model, occupancy grid, local SQLite path, and continuity demo controls. `SYNC_ADAPTER_TYPE=MOCK` is the default; `SYNC_ADAPTER_MODE` is DEVELOPMENT / DEMO fault injection only. `SYNC_ADAPTER_TYPE=HTTP` selects the separate localhost qualification backend, not a production cloud backend.
 
 `deploy.py` is the supported Round 2 path. The repository retains legacy `app.py` and historical simulation scripts for compatibility, but they are not part of the Round 2 qualification path.

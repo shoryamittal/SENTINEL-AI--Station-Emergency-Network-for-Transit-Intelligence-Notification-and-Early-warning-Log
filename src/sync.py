@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import random
 import time
+import json
+from urllib import error, request
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -86,6 +88,47 @@ class MockSyncAdapter(SyncAdapter):
         if self.mode == self.DUPLICATE_ACCEPTED and already_seen:
             return SyncResult.ALREADY_ACCEPTED
         return SyncResult.ACCEPTED
+
+
+class HttpSyncAdapter(SyncAdapter):
+    """HTTP adapter for the localhost qualification backend, not production.
+
+    ``transport`` is an optional deterministic test seam returning
+    ``(status_code, response_body)``. The default transport uses urllib.
+    """
+
+    def __init__(self, endpoint_url: str, timeout_s: float = 2.0, transport=None):
+        self.endpoint_url = endpoint_url
+        self.timeout_s = timeout_s
+        self.transport = transport or self._urllib_transport
+
+    def _urllib_transport(self, endpoint_url: str, body: bytes, timeout_s: float):
+        req = request.Request(endpoint_url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with request.urlopen(req, timeout=timeout_s) as response:
+                return response.status, response.read()
+        except error.HTTPError as exc:
+            return exc.code, exc.read()
+
+    def send_event(self, payload: dict[str, Any]) -> str:
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        try:
+            status, response_body = self.transport(self.endpoint_url, body, self.timeout_s)
+        except Exception:
+            return SyncResult.RETRYABLE_FAILURE
+        try:
+            response = json.loads(response_body.decode("utf-8") if isinstance(response_body, bytes) else response_body)
+        except (TypeError, ValueError, UnicodeDecodeError):
+            response = {}
+        result = response.get("result")
+        if status == 201 and result == SyncResult.ACCEPTED:
+            return SyncResult.ACCEPTED
+        if status == 200 and result == SyncResult.ALREADY_ACCEPTED:
+            return SyncResult.ALREADY_ACCEPTED
+        if status in (400, 409):
+            return SyncResult.PERMANENT_FAILURE
+        # Includes 401/403 until the later auth-aware blocking tranche.
+        return SyncResult.RETRYABLE_FAILURE
 
 
 @dataclass(slots=True)
