@@ -46,7 +46,8 @@ from src.alerts import LocalAlertCenter, optional_fast2sms_notifier
 from src.camera import FrameSource
 from src.config import RuntimeConfig
 from src.connectivity import ConnectivityManager, ConnectivityState
-from src.contracts import SourceMode
+from src.contracts import CameraHealth, SourceMode
+from src.detector import PersonDetector
 from src.metrics import ContinuityMetrics
 from src.persistence import IncidentJournal
 from src.sync import HttpSyncAdapter, MockSyncAdapter, SyncWorker
@@ -146,8 +147,38 @@ def _durably_accept_incident(candidate) -> bool:
     return inserted or journal.get_event(candidate.event_id) is not None
 
 
+class _LockedDetector:
+    """Serializes concurrent detect() calls without touching src/detector.py.
+
+    _switch_active_runtime starts the new SentinelRuntime (and its
+    background thread) before stopping the old one, so for a brief window
+    both runtimes' worker threads can be mid-flight at once. A shared
+    PersonDetector's underlying model is not guaranteed safe for concurrent
+    inference calls from two threads; this lock only serializes that rare
+    overlap -- it never changes what detect() returns.
+    """
+
+    def __init__(self, detector: PersonDetector):
+        self._detector = detector
+        self._lock = Lock()
+        self.model_version = detector.model_version
+
+    def detect(self, frame):
+        with self._lock:
+            return self._detector.detect(frame)
+
+
+# One PersonDetector shared across every REALITY/SIMULATION switch. YOLO
+# weight loading happens lazily on first detect() call and is expensive
+# (multi-second); a fresh PersonDetector per switch would silently pay that
+# reload cost on every single click. Reusing the instance keeps the exact
+# same model/weights/confidence threshold -- this changes nothing about
+# detection quality, only how many times the same weights get loaded.
+_shared_detector = _LockedDetector(PersonDetector(runtime_config.model_path, runtime_config.confidence_threshold))
+
 runtime = SentinelRuntime(
     FrameSource(_source_mode, _source_value),
+    detector=_shared_detector,
     config=runtime_config,
     incident_sink=_durably_accept_incident,
 )
@@ -166,14 +197,59 @@ UPLOAD_DIR = Path("data") / "uploads"
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB, generous for a short demo clip
 _ALLOWED_VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
 
+# The one approved, permanently bundled competition demo clip. It is
+# processed through the exact same SentinelRuntime pipeline as any other
+# VIDEO source -- there is no separate "default demo" code path.
+DEFAULT_SIMULATION_VIDEO = Path("data") / "demo" / "crowd_station.mp4"
+DEFAULT_SIMULATION_LABEL = "Crowded Railway Station"
+
+
+def _probe_video(path: Path) -> dict | None:
+    """Open+read real metadata from a video file, or None if it can't be used.
+
+    Never fabricated: every field here comes from the file itself via OpenCV.
+    """
+    if not path.exists():
+        return None
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    try:
+        if not cap.isOpened():
+            return None
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        ok, _ = cap.read()
+        if not ok:
+            return None
+        return {
+            "width": width,
+            "height": height,
+            "fps": round(fps, 2) if fps else None,
+            "frame_count": frame_count,
+            "duration_s": round(frame_count / fps, 2) if fps else None,
+            "size_bytes": path.stat().st_size,
+        }
+    finally:
+        cap.release()
+
+
+_default_simulation_metadata = _probe_video(DEFAULT_SIMULATION_VIDEO)
+
 _runtime_lock = Lock()
 _operating_mode = "REALITY"  # UI-facing label; independent of contracts.SourceMode
 _simulation_source_name: str | None = None
+_simulation_source_label: str | None = None
+_simulation_source_path: str | None = None
+_simulation_loop_count = 0
 
 
 def _build_runtime(source_mode, source_value) -> SentinelRuntime:
     return SentinelRuntime(
         FrameSource(source_mode, source_value),
+        detector=_shared_detector,
         config=runtime_config,
         incident_sink=_durably_accept_incident,
     )
@@ -199,14 +275,21 @@ def _switch_active_runtime(new_source_mode, new_source_value, new_label: str) ->
 
 
 def switch_to_reality() -> tuple[bool, str | None]:
-    return _switch_active_runtime(_source_mode, _source_value, "REALITY")
+    global _simulation_loop_count
+    result = _switch_active_runtime(_source_mode, _source_value, "REALITY")
+    if result[0]:
+        _simulation_loop_count = 0
+    return result
 
 
-def switch_to_simulation(video_path: str) -> tuple[bool, str | None]:
-    global _simulation_source_name
+def switch_to_simulation(video_path: str, label: str | None = None, *, _looping: bool = False) -> tuple[bool, str | None]:
+    global _simulation_source_name, _simulation_source_label, _simulation_source_path, _simulation_loop_count
     result = _switch_active_runtime(SourceMode.VIDEO, video_path, "SIMULATION")
     if result[0]:
         _simulation_source_name = Path(video_path).name
+        _simulation_source_label = label or _simulation_source_name
+        _simulation_source_path = video_path
+        _simulation_loop_count = _simulation_loop_count + 1 if _looping else 0
     return result
 
 
@@ -269,6 +352,38 @@ def _incident_consumer() -> None:
             app.logger.exception("incident consumer failed for one candidate; continuing")
 
 
+_loop_watchdog_stop = Event()
+_loop_watchdog_thread: Thread | None = None
+
+
+def _maybe_restart_simulation_loop() -> bool:
+    """Restart the active scenario clip if it has played through to the end.
+
+    Only acts while SIMULATION is the active mode and the active source is
+    the video most recently switched to; every restart re-enters the real
+    pipeline from frame 1 (no fake state reset, no synthetic frames).
+    Returns True if a restart was triggered (for tests).
+    """
+    if _operating_mode != "SIMULATION" or _simulation_source_path is None:
+        return False
+    active = runtime
+    if active.source.source_mode is not SourceMode.VIDEO:
+        return False
+    # VIDEO EOF sets FrameSource._recovering permanently (nothing ever flips
+    # it back), so health() reports INPUT_RECOVERING forever from that point
+    # on rather than escalating to CAMERA_LOST -- that state is exactly
+    # "this clip is exhausted and needs a fresh read()".
+    if active.source.health() in (CameraHealth.INPUT_RECOVERING, CameraHealth.CAMERA_LOST):
+        switch_to_simulation(_simulation_source_path, _simulation_source_label, _looping=True)
+        return True
+    return False
+
+
+def _simulation_loop_watchdog() -> None:
+    while not _loop_watchdog_stop.wait(1.0):
+        _maybe_restart_simulation_loop()
+
+
 def initialize_system() -> None:
     journal.initialize()
     if SYNC_ADAPTER_TYPE == "HTTP" and SYNC_BEARER_TOKEN:
@@ -279,10 +394,14 @@ def initialize_system() -> None:
     connectivity.start()
     sync_worker.start()
 
-    global _consumer_thread
+    global _consumer_thread, _loop_watchdog_thread
     _consumer_stop.clear()
     _consumer_thread = Thread(target=_incident_consumer, daemon=True)
     _consumer_thread.start()
+
+    _loop_watchdog_stop.clear()
+    _loop_watchdog_thread = Thread(target=_simulation_loop_watchdog, daemon=True)
+    _loop_watchdog_thread.start()
 
 
 # ----------------------------------------------------------------------
@@ -442,7 +561,7 @@ HTML_TEMPLATE = """
       <span class="mode-tag" id="mode-tag">MODE: REALITY</span>
     </div>
     <div class="mode-bar-right" id="simulation-controls" style="display:none;">
-      <label class="upload-btn" for="simulation-upload">UPLOAD CROWD SCENARIO
+      <label class="upload-btn" for="simulation-upload">UPLOAD A DIFFERENT SCENARIO
         <input type="file" id="simulation-upload" accept=".mp4,.avi,.mov,.mkv" onchange="uploadSimulationVideo(event)">
       </label>
       <span id="simulation-upload-status"></span>
@@ -876,17 +995,25 @@ function forceConnectivity(state) {
 }
 
 let currentOperatingMode = 'REALITY';
+let modeSwitchInFlight = false;
 
 function setOperatingMode(mode) {
-  if (mode === 'REALITY') {
-    fetch('/api/mode/reality', { method: 'POST' }).catch(() => {});
-  } else {
-    // SIMULATION mode is entered by uploading a scenario; just reveal the
-    // upload control here rather than switching sources with no file yet.
-    document.getElementById('simulation-controls').style.display = 'flex';
-    document.getElementById('mode-btn-simulation').classList.add('active');
-    document.getElementById('mode-btn-reality').classList.remove('active');
-  }
+  // The backend mode is authoritative; this always issues the real switch
+  // immediately (never just a local button-visual change), so the next
+  // /status poll confirms rather than reverts it.
+  if (modeSwitchInFlight) return;
+  modeSwitchInFlight = true;
+  const url = mode === 'REALITY' ? '/api/mode/reality' : '/api/mode/simulation';
+  fetch(url, { method: 'POST' })
+    .then(function (response) { return response.json(); })
+    .then(function (data) {
+      if (!data.success) {
+        document.getElementById('simulation-upload-status').textContent =
+          mode === 'SIMULATION' ? ('Simulation unavailable: ' + (data.error || 'unknown error')) : '';
+      }
+    })
+    .catch(() => {})
+    .finally(() => { modeSwitchInFlight = false; });
 }
 
 function uploadSimulationVideo(event) {
@@ -916,9 +1043,10 @@ function renderOperatingMode(data) {
   document.getElementById('simulation-controls').style.display = isSimulation ? 'flex' : 'none';
   document.getElementById('simulation-explainer').style.display = isSimulation ? 'block' : 'none';
 
-  document.getElementById('mode-tag').textContent = 'MODE: ' + mode;
+  const looping = isSimulation && data.simulation_loop_count > 1;
+  document.getElementById('mode-tag').textContent = 'MODE: ' + mode + (looping ? ' — LOOPING DEMO' : '');
   const sourceLabel = isSimulation
-    ? 'SOURCE: SCENARIO VIDEO' + (data.simulation_source_name ? ' (' + data.simulation_source_name + ')' : '')
+    ? 'SOURCE: ' + (data.simulation_source_label || data.simulation_source_name || 'SCENARIO VIDEO')
     : 'SOURCE: LIVE CAMERA';
   document.getElementById('mode-source-label').textContent = sourceLabel;
 
@@ -1002,6 +1130,10 @@ def status():
             "recent_events": [record.to_dict() for record in journal.get_recent_events(15)],
             "operating_mode": _operating_mode,
             "simulation_source_name": _simulation_source_name,
+            "simulation_source_label": _simulation_source_label,
+            "simulation_loop_count": _simulation_loop_count,
+            "default_simulation_available": _default_simulation_metadata is not None,
+            "default_simulation_metadata": _default_simulation_metadata,
         }
     )
 
@@ -1012,6 +1144,26 @@ def api_switch_to_reality():
     if not ok:
         return jsonify({"success": False, "error": error}), 400
     return jsonify({"success": True, "mode": "REALITY"})
+
+
+@app.route("/api/mode/simulation", methods=["POST"])
+def api_switch_to_default_simulation():
+    """Switch to the permanently bundled demo clip -- no upload required.
+
+    This is the one-click path: the file lives at DEFAULT_SIMULATION_VIDEO
+    on disk and is processed through the same SentinelRuntime pipeline as
+    every other source. If the bundled file is missing or unreadable, this
+    reports the exact problem instead of silently substituting anything.
+    """
+    if _default_simulation_metadata is None:
+        return jsonify({
+            "success": False,
+            "error": f"bundled demo video not available at {DEFAULT_SIMULATION_VIDEO}",
+        }), 400
+    ok, error = switch_to_simulation(str(DEFAULT_SIMULATION_VIDEO), DEFAULT_SIMULATION_LABEL)
+    if not ok:
+        return jsonify({"success": False, "error": error}), 400
+    return jsonify({"success": True, "mode": "SIMULATION", "file": DEFAULT_SIMULATION_VIDEO.name})
 
 
 @app.route("/api/mode/simulation/upload", methods=["POST"])
@@ -1086,7 +1238,13 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("SENTINEL AI - Continuity Plane (Round 2)")
     print("=" * 80)
-    print(f"Local URL: http://localhost:{port}")
+    # Use the literal loopback address, not "localhost": on this host,
+    # resolving "localhost" tries the IPv6 loopback (::1) first, and since
+    # the server binds IPv4-only, Windows takes ~2s to refuse that attempt
+    # before falling back to IPv4 -- adding a ~2s stall to every request
+    # (page load, /status poll, camera feed) despite the server itself
+    # responding in milliseconds. Browsing straight to 127.0.0.1 skips it.
+    print(f"Local URL: http://127.0.0.1:{port}")
     print(f"Database:  {journal.db_path}")
     print(f"Camera:    {_source_mode.value} source={_source_value!r}")
     print("=" * 80 + "\n")
@@ -1094,6 +1252,7 @@ if __name__ == "__main__":
         app.run(host=SENTINEL_BIND_HOST, port=port, debug=False, threaded=True)
     finally:
         _consumer_stop.set()
+        _loop_watchdog_stop.set()
         sync_worker.stop()
         connectivity.stop()
         runtime.stop()

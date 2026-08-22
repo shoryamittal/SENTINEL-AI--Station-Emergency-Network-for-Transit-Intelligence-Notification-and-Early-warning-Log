@@ -110,7 +110,7 @@ def test_switch_to_simulation_and_back_leaves_exactly_one_active_source(monkeypa
     finally:
         deploy.runtime.stop()
         monkeypatch.setattr(deploy, "runtime", original_runtime)
-        monkeypatch.setattr(deploy, "_operating_mode", "REALITY")
+        deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
 
 
 def test_status_endpoint_reports_operating_mode_and_source_label(tmp_path, monkeypatch, tiny_video):
@@ -145,7 +145,7 @@ def test_status_endpoint_reports_operating_mode_and_source_label(tmp_path, monke
     finally:
         deploy.runtime.stop()
         monkeypatch.setattr(deploy, "runtime", original_runtime)
-        monkeypatch.setattr(deploy, "_operating_mode", "REALITY")
+        deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
 
 
 # ----------------------------------------------------------------------
@@ -190,3 +190,134 @@ def test_simulation_video_source_mode_is_video_not_camera(tiny_video):
         assert snapshot.source_mode != SourceMode.CAMERA
     finally:
         runtime.source.stop()
+
+
+# ----------------------------------------------------------------------
+# The permanently bundled competition demo clip.
+# ----------------------------------------------------------------------
+def test_bundled_demo_video_exists_and_opens():
+    import deploy
+
+    assert deploy.DEFAULT_SIMULATION_VIDEO.exists(), (
+        f"bundled demo video missing at {deploy.DEFAULT_SIMULATION_VIDEO}"
+    )
+    assert deploy._default_simulation_metadata is not None
+    meta = deploy._default_simulation_metadata
+    assert meta["width"] > 0 and meta["height"] > 0
+    assert meta["frame_count"] > 0
+
+
+def test_clicking_simulation_switches_immediately_with_no_upload(monkeypatch, tmp_path):
+    """Regression: previously, clicking SIMULATION only changed a frontend
+    button and never told the backend, so the next /status poll silently
+    reverted the UI to REALITY. The one-click endpoint must actually flip
+    the single authoritative backend mode using the bundled clip."""
+    import deploy
+
+    monkeypatch.setattr(deploy, "_source_mode", SourceMode.SIMULATION)
+    monkeypatch.setattr(deploy, "_source_value", None)
+    monkeypatch.setattr(deploy, "runtime_config", RuntimeConfig(calibration_samples=1))
+    monkeypatch.setattr(deploy, "_default_simulation_metadata", {"width": 8, "height": 8, "fps": 10.0, "frame_count": 1})
+
+    # Use a real tiny video so the switch actually starts a working source.
+    tiny = tmp_path / "bundled.mp4"
+    writer = cv2.VideoWriter(str(tiny), cv2.VideoWriter_fourcc(*"mp4v"), 10.0, (32, 32))
+    writer.write(np.zeros((32, 32, 3), dtype=np.uint8))
+    writer.release()
+    monkeypatch.setattr(deploy, "DEFAULT_SIMULATION_VIDEO", tiny)
+
+    original_runtime = deploy.runtime
+    try:
+        client = deploy.app.test_client()
+        before = client.get("/status").get_json()
+        assert before["operating_mode"] == "REALITY"
+
+        response = client.post("/api/mode/simulation")
+        assert response.get_json()["success"] is True
+
+        after = client.get("/status").get_json()
+        # No second click, no upload -- the mode must already be SIMULATION.
+        assert after["operating_mode"] == "SIMULATION"
+        assert after["simulation_source_label"] == deploy.DEFAULT_SIMULATION_LABEL
+    finally:
+        deploy.runtime.stop()
+        monkeypatch.setattr(deploy, "runtime", original_runtime)
+        deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
+
+
+def test_default_simulation_endpoint_reports_error_when_bundled_file_missing(monkeypatch):
+    import deploy
+
+    monkeypatch.setattr(deploy, "_default_simulation_metadata", None)
+    client = deploy.app.test_client()
+    response = client.post("/api/mode/simulation")
+    assert response.status_code == 400
+    body = response.get_json()
+    assert body["success"] is False
+    assert "not available" in body["error"]
+
+
+def _wait_until(predicate, timeout_s=5.0, interval_s=0.02):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval_s)
+    return predicate()
+
+
+def test_simulation_loop_restarts_after_clip_exhausts(monkeypatch, tiny_video):
+    """The short bundled clip must loop, not die at end-of-file, so a judge
+    doesn't watch a 4-second demo go stale."""
+    import deploy
+
+    monkeypatch.setattr(deploy, "_source_mode", SourceMode.SIMULATION)
+    monkeypatch.setattr(deploy, "_source_value", None)
+    monkeypatch.setattr(deploy, "runtime_config", RuntimeConfig(calibration_samples=1))
+
+    original_runtime = deploy.runtime
+    try:
+        ok, _ = deploy.switch_to_simulation(tiny_video, "Test Clip")
+        assert ok is True
+
+        # switch_to_simulation starts the runtime's own background thread,
+        # which is the only thing allowed to call process_once() on it --
+        # calling it again from the test thread would race the same
+        # cv2.VideoCapture handle. Wait for that thread to drain the clip.
+        assert _wait_until(lambda: deploy.runtime.source.health().value in ("INPUT_RECOVERING", "CAMERA_LOST"))
+
+        restarted = deploy._maybe_restart_simulation_loop()
+        assert restarted is True
+        assert deploy._operating_mode == "SIMULATION"
+        assert deploy._simulation_loop_count == 1
+
+        # The restarted runtime must genuinely play from frame 1 again.
+        assert _wait_until(lambda: deploy.runtime.get_latest_snapshot() is not None)
+        assert deploy.runtime.get_latest_snapshot().frame_id >= 1
+    finally:
+        deploy.runtime.stop()
+        monkeypatch.setattr(deploy, "runtime", original_runtime)
+        deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
+        deploy._simulation_loop_count = 0
+
+
+def test_simulation_mode_survives_when_not_exhausted(monkeypatch, tiny_video):
+    """The watchdog must not restart a clip that still has frames left."""
+    import deploy
+
+    monkeypatch.setattr(deploy, "_source_mode", SourceMode.SIMULATION)
+    monkeypatch.setattr(deploy, "_source_value", None)
+    monkeypatch.setattr(deploy, "runtime_config", RuntimeConfig(calibration_samples=1))
+
+    original_runtime = deploy.runtime
+    try:
+        deploy.switch_to_simulation(tiny_video, "Test Clip")
+        assert _wait_until(lambda: deploy.runtime.get_latest_snapshot() is not None)
+        restarted = deploy._maybe_restart_simulation_loop()
+        assert restarted is False
+        assert deploy._simulation_loop_count == 0
+    finally:
+        deploy.runtime.stop()
+        monkeypatch.setattr(deploy, "runtime", original_runtime)
+        deploy._operating_mode = "REALITY"  # plain assign: monkeypatch.setattr here would restore the DIRTY value at teardown
+        deploy._simulation_loop_count = 0
