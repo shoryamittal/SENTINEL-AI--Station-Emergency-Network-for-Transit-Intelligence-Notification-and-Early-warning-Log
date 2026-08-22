@@ -114,6 +114,26 @@ class ConnectivityManager:
 
         self._stop = Event()
         self._thread: Thread | None = None
+        self._manual_override: str | None = None
+
+    # ------------------------------------------------------------------
+    def set_manual_override(self, state: str | None) -> None:
+        """DEMO/DEBUG ONLY: force a connectivity state regardless of real checks.
+
+        Intended for exercising the offline/recovery qualification loop in
+        environments (dev sandboxes, CI) where physically disabling Wi-Fi
+        isn't possible. Pass ``None`` to return to real, checked state.
+        This is clearly a simulation aid, not a production feature.
+        """
+        with self._lock:
+            self._manual_override = state
+            if state is not None:
+                now = _utc_now()
+                if state == ConnectivityState.OFFLINE:
+                    self._enter_offline(now)
+                else:
+                    self._exit_offline(now)
+                    self._state = state
 
     # ------------------------------------------------------------------
     def start(self) -> None:
@@ -136,8 +156,15 @@ class ConnectivityManager:
     # ------------------------------------------------------------------
     def check_once(self) -> ConnectivitySnapshot:
         """Run a single check synchronously and update state. Safe to call from tests."""
+        with self._lock:
+            if self._manual_override is not None:
+                # A manual override is in effect (demo/debug); don't let a
+                # real check_fn result fight it.
+                return self._snapshot_locked()
         success, latency_ms = self._check_fn()
         with self._lock:
+            if self._manual_override is not None:
+                return self._snapshot_locked()
             self._apply_result(success, latency_ms)
             return self._snapshot_locked()
 
