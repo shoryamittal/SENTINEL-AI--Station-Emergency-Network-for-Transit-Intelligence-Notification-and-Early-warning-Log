@@ -116,7 +116,11 @@ def test_status_endpoint_exposes_every_field_the_zone_panel_needs(tmp_path, monk
 
     response = deploy.app.test_client().get("/status")
     assert response.status_code == 200
-    snapshot = response.get_json()["snapshot"]
+    payload = response.get_json()
+    snapshot = payload["snapshot"]
+    health = payload["runtime_health"]
+
+    assert {"state", "worker_alive", "consecutive_failures", "snapshot_fresh", "camera_health"} <= health.keys()
 
     for field in (
         "occupancy_grid", "hotspot", "load_anomaly", "accumulation",
@@ -127,3 +131,11 @@ def test_status_endpoint_exposes_every_field_the_zone_panel_needs(tmp_path, monk
     assert len(snapshot["occupancy_grid"]) == 4
     assert len(snapshot["occupancy_grid"][0]) == 6
     assert snapshot["hotspot"] == "r2c1"
+
+
+def test_dashboard_template_has_status_unavailable_stale_fallback():
+    import deploy
+
+    assert "function markStatusUnavailable()" in deploy.HTML_TEMPLATE
+    assert "LOCAL STATUS UNAVAILABLE" in deploy.HTML_TEMPLATE
+    assert "AI RISK OUTPUT STALE" in deploy.HTML_TEMPLATE

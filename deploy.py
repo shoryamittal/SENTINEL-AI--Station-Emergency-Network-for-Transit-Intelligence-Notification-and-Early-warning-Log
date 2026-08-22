@@ -494,23 +494,41 @@ async function updateUI() {
     return 800; // healthy cadence
   } catch (e) {
     clearTimeout(timeoutId);
-    // The dashboard itself must remain responsive even if a single poll
-    // fails (e.g. transient localhost hiccup) -- WAN offline never means
-    // localhost is offline, but we back off briefly regardless.
+    markStatusUnavailable();
     return 2000;
   }
 }
 
+function markStatusUnavailable() {
+  document.getElementById('stale-banner').style.display = 'block';
+  document.getElementById('stale-banner').textContent = 'LOCAL STATUS UNAVAILABLE — last displayed values are stale. Current live risk is UNKNOWN.';
+  document.getElementById('severity').textContent = 'UNKNOWN';
+  document.getElementById('severity-stat').className = 'stat';
+  document.getElementById('last-update').textContent = 'AI update: local status unavailable';
+  setBadgeClass(document.getElementById('conn-badge'), 'CONNECTIVITY', 'UNKNOWN');
+  document.getElementById('conn-state').textContent = 'UNKNOWN';
+  document.getElementById('pulse-list').innerHTML = pulseRow('AI Engine', false, 'local status unavailable');
+}
+
 function render(data) {
   const snap = data.snapshot;
+  const runtimeHealth = data.runtime_health || {};
   const conn = data.connectivity;
   const metrics = data.metrics;
 
   // --- Input health / stale handling ---
   const staleBanner = document.getElementById('stale-banner');
-  const camHealth = snap ? snap.camera_health : 'CAMERA_LOST';
-  const isStale = !snap || ['STALE','CAMERA_LOST','INPUT_RECOVERING'].includes(camHealth);
-  staleBanner.style.display = isStale ? 'block' : 'none';
+  const camHealth = runtimeHealth.camera_health || (snap ? snap.camera_health : 'CAMERA_LOST');
+  const cameraStale = camHealth !== 'LIVE';
+  const riskStale = !snap || !runtimeHealth.snapshot_fresh || ['DEGRADED','STALE','STOPPED','NOT_STARTED','STARTING'].includes(runtimeHealth.state);
+  if (runtimeHealth.state === 'DEGRADED') {
+    staleBanner.textContent = 'AI ENGINE DEGRADED — camera input may still be live, but the last risk assessment is not current.';
+  } else if (riskStale) {
+    staleBanner.textContent = 'AI RISK OUTPUT STALE — last valid assessment is historical. Current live risk is UNKNOWN.';
+  } else if (cameraStale) {
+    staleBanner.textContent = 'INPUT STALE — showing last valid frame. Current live risk is UNKNOWN until the camera recovers.';
+  }
+  staleBanner.style.display = (riskStale || cameraStale) ? 'block' : 'none';
 
   document.getElementById('camera-health').textContent = camHealth || '--';
   document.getElementById('frame-id').textContent = snap ? snap.frame_id : '--';
@@ -518,21 +536,22 @@ function render(data) {
   document.getElementById('proc-latency').textContent = snap ? fmtMs(snap.processing_latency_ms) : '--';
   document.getElementById('last-update').textContent = 'AI update: ' + (snap ? fmtAgo(snap.timestamp_utc) : '--');
 
-  document.getElementById('people-count').textContent = snap ? snap.people_count : '--';
-  document.getElementById('occupancy-index').textContent = snap ? snap.occupancy_index.toFixed(2) : '--';
-  renderZoneIntelligence(snap);
+  const riskSnap = riskStale ? null : snap;
+  document.getElementById('people-count').textContent = riskSnap ? riskSnap.people_count : '--';
+  document.getElementById('occupancy-index').textContent = riskSnap ? riskSnap.occupancy_index.toFixed(2) : '--';
+  renderZoneIntelligence(riskSnap);
 
-  document.getElementById('load-anomaly').textContent = snap ? snap.load_anomaly.toFixed(2) : '--';
-  document.getElementById('accumulation').textContent = snap ? snap.accumulation.toFixed(2) : '--';
-  document.getElementById('redistribution').textContent = snap ? snap.redistribution.toFixed(2) : '--';
-  document.getElementById('confidence').textContent = snap ? (snap.confidence*100).toFixed(0) + '%' : '--';
-  document.getElementById('scenario').textContent = snap ? snap.primary_scenario : '--';
-  document.getElementById('hotspot').textContent = (snap && snap.hotspot) ? snap.hotspot : 'none';
-  document.getElementById('action').textContent = snap ? snap.recommended_action : '--';
+  document.getElementById('load-anomaly').textContent = riskSnap ? riskSnap.load_anomaly.toFixed(2) : '--';
+  document.getElementById('accumulation').textContent = riskSnap ? riskSnap.accumulation.toFixed(2) : '--';
+  document.getElementById('redistribution').textContent = riskSnap ? riskSnap.redistribution.toFixed(2) : '--';
+  document.getElementById('confidence').textContent = riskSnap ? (riskSnap.confidence*100).toFixed(0) + '%' : '--';
+  document.getElementById('scenario').textContent = riskSnap ? riskSnap.primary_scenario : '--';
+  document.getElementById('hotspot').textContent = (riskSnap && riskSnap.hotspot) ? riskSnap.hotspot : 'none';
+  document.getElementById('action').textContent = riskSnap ? riskSnap.recommended_action : '--';
 
   const severityEl = document.getElementById('severity');
   const severityStat = document.getElementById('severity-stat');
-  const effectiveSeverity = isStale ? 'STALE' : (snap ? snap.severity : 'UNKNOWN');
+  const effectiveSeverity = riskStale ? 'STALE' : (snap ? snap.severity : 'UNKNOWN');
   severityEl.textContent = effectiveSeverity;
   severityStat.className = 'stat sev-' + (SEVERITIES.includes(effectiveSeverity) ? effectiveSeverity : '');
 
@@ -546,9 +565,9 @@ function render(data) {
 
   // --- Sentinel pulse ---
   const pulses = [
-    pulseRow('Camera', !isStale, snap ? camHealth : 'CAMERA_LOST'),
-    pulseRow('AI Engine', !!snap, snap ? fmtAgo(snap.timestamp_utc) : 'no data'),
-    pulseRow('Risk Engine', !!snap, snap ? effectiveSeverity : 'no data'),
+    pulseRow('Camera', !cameraStale, camHealth),
+    pulseRow('AI Engine', runtimeHealth.state === 'HEALTHY', runtimeHealth.state || 'UNKNOWN'),
+    pulseRow('Risk Engine', !riskStale, riskStale ? 'STALE / UNKNOWN' : effectiveSeverity),
     pulseRow('SQLite', metrics.latest_database_success !== null, metrics.latest_database_success ? fmtAgo(metrics.latest_database_success) : 'no writes yet'),
     pulseRow('Remote Sync', conn.state === 'ONLINE' || conn.state === 'RECOVERY', metrics.latest_sync_success ? fmtAgo(metrics.latest_sync_success) + ' since last success' : (conn.state + ' -- no successful sync yet')),
   ];
@@ -646,6 +665,7 @@ def status():
     return jsonify(
         {
             "snapshot": snapshot.to_dict() if snapshot else None,
+            "runtime_health": runtime.get_runtime_health(),
             "connectivity": connectivity.snapshot().to_dict(),
             "metrics": metrics.snapshot().to_dict(),
             "local_alerts": alert_center.recent(10),

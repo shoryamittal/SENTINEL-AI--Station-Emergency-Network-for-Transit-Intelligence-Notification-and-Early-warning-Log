@@ -23,13 +23,25 @@ class SentinelRuntime:
         self.risk = AdaptiveRisk(self.config.baseline_floor, self.config.accumulation_window, self.config.redistribution_window)
         self.scenario = ScenarioEngine(self.config.escalation_confirmations, self.config.deescalation_confirmations, self.config.extreme_occupancy_guardrail)
         self.health = HealthMonitor(self.config.stale_frame_age_s); self._latest = None; self._lock = Lock(); self._incidents = Queue(); self._stop = Event(); self._thread = None; self._last_key = None
+        self._ever_started = False
+        self._stopped = False
+        self._last_success_at = None
+        self._last_error_at = None
+        self._last_error_type = None
+        self._consecutive_failures = 0
     def start(self):
         if self._thread and self._thread.is_alive(): return
-        self.source.start(); self._stop.clear(); self._thread = Thread(target=self._run, daemon=True); self._thread.start()
+        self.source.start(); self._stop.clear()
+        with self._lock:
+            self._ever_started = True
+            self._stopped = False
+        self._thread = Thread(target=self._run, daemon=True); self._thread.start()
     def stop(self):
         self._stop.set()
         if self._thread: self._thread.join(timeout=2)
         self.source.stop()
+        with self._lock:
+            self._stopped = True
     def process_once(self):
         packet = self.source.read()
         if packet is None: return None
@@ -41,7 +53,10 @@ class SentinelRuntime:
         self.baseline.update(occupancy.grid, abnormal=severity is not Severity.GREEN)
         snapshot = RiskSnapshot(datetime.now(timezone.utc), packet.frame_id, packet.source_mode, occupancy.people_count, occupancy.occupancy_index, occupancy.grid, self.baseline.state, load, accumulation, redistribution, primary, conditions, severity, confidence, occupancy.hotspot_zone, action, code, self.source.health(), self.health.frame_age_ms(), latency, self.detector.model_version)
         self.health.record_risk()
-        with self._lock: self._latest = snapshot
+        with self._lock:
+            self._latest = snapshot
+            self._last_success_at = snapshot.timestamp_utc
+            self._consecutive_failures = 0
         key = (severity, primary, occupancy.hotspot_zone)
         if severity is Severity.GREEN:
             # GREEN closes the current incident episode. The same key can be
@@ -52,12 +67,61 @@ class SentinelRuntime:
         return snapshot
     def get_latest_snapshot(self):
         with self._lock: return self._latest
+    def get_runtime_health(self):
+        """Return serializable worker health without exposing exception detail."""
+        with self._lock:
+            snapshot = self._latest
+            ever_started = self._ever_started
+            stopped = self._stopped
+            consecutive_failures = self._consecutive_failures
+            last_success_at = self._last_success_at
+            last_error_at = self._last_error_at
+            last_error_type = self._last_error_type
+        worker_alive = bool(self._thread and self._thread.is_alive())
+        snapshot_age_ms = None
+        if snapshot is not None:
+            snapshot_age_ms = max(0.0, (datetime.now(timezone.utc) - snapshot.timestamp_utc).total_seconds() * 1000)
+        snapshot_fresh = snapshot_age_ms is not None and snapshot_age_ms <= self.config.stale_frame_age_s * 1000
+        if not ever_started:
+            state = "NOT_STARTED"
+        elif stopped or not worker_alive:
+            state = "STOPPED"
+        elif consecutive_failures:
+            state = "DEGRADED"
+        elif snapshot is None:
+            state = "STARTING"
+        elif not snapshot_fresh:
+            state = "STALE"
+        else:
+            state = "HEALTHY"
+        return {
+            "state": state,
+            "worker_alive": worker_alive,
+            "consecutive_failures": consecutive_failures,
+            "last_success_at": last_success_at.isoformat() if last_success_at else None,
+            "last_error_at": last_error_at.isoformat() if last_error_at else None,
+            "last_error_type": last_error_type,
+            "snapshot_age_ms": snapshot_age_ms,
+            "snapshot_fresh": snapshot_fresh,
+            "camera_health": self.source.health().value,
+        }
     def get_next_incident(self, timeout=None):
         try: return self._incidents.get(timeout=timeout)
         except Empty: return None
     def _run(self):
         while not self._stop.is_set():
-            if self.process_once() is None: time.sleep(.03)
+            try:
+                snapshot = self.process_once()
+            except Exception as exc:
+                with self._lock:
+                    self._consecutive_failures += 1
+                    self._last_error_at = datetime.now(timezone.utc)
+                    self._last_error_type = type(exc).__name__
+                    failures = self._consecutive_failures
+                self._stop.wait(min(0.1 * (2 ** max(0, failures - 1)), 2.0))
+                continue
+            if snapshot is None:
+                self._stop.wait(.03)
 
 
 class ContinuousMonitor:

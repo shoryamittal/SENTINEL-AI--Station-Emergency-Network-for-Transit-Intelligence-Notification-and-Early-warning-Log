@@ -172,7 +172,7 @@ def test_full_round2_offline_restart_recovery(tmp_path, monkeypatch):
     status_response = client.get("/status")
     assert status_response.status_code == 200
     status_json = status_response.get_json()
-    assert set(("snapshot", "connectivity", "metrics", "local_alerts", "recent_events")) <= status_json.keys()
+    assert set(("snapshot", "runtime_health", "connectivity", "metrics", "local_alerts", "recent_events")) <= status_json.keys()
     assert status_json["connectivity"]["state"] == ConnectivityState.OFFLINE
     assert status_json["metrics"]["events_pending"] == 4
     assert status_json["metrics"]["events_lost"] == 0
