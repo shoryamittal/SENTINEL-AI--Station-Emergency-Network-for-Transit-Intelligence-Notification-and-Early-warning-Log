@@ -539,6 +539,7 @@ HTML_TEMPLATE = """
   .badge-LIVE { background:rgba(53,211,153,.12); color:var(--green); border:1px solid rgba(53,211,153,.3); }
   .badge-ACTIVE { background:rgba(34,211,238,.12); color:var(--cyan); border:1px solid rgba(34,211,238,.3); }
   .badge-CAMERA_LOST, .badge-STOPPED, .badge-NOT_STARTED { background:rgba(242,84,91,.1); color:var(--red); border:1px solid rgba(242,84,91,.3); }
+  .badge-DEFERRED { background:rgba(245,177,67,.1); color:var(--amber); border:1px solid rgba(245,177,67,.3); }
   .badge-INPUT_RECOVERING, .badge-DEGRADED2, .badge-STARTING { background:rgba(245,177,67,.12); color:var(--amber); border:1px solid rgba(245,177,67,.3); }
 
   /* ---------------- Cards / stat tiles ---------------- */
@@ -578,6 +579,23 @@ HTML_TEMPLATE = """
   .camera-frame img { width:100%; height:100%; object-fit:contain; display:block; background:#000; }
   .camera-frame .cam-tag { position:absolute; top:.6rem; left:.6rem; display:flex; gap:.4rem; align-items:center; }
   .camera-frame .cam-tag span { background:rgba(7,12,17,.75); backdrop-filter:blur(2px); border:1px solid rgba(255,255,255,.12); padding:.25rem .5rem; border-radius:.3rem; font-size:.65rem; font-weight:700; letter-spacing:.04em; font-family:var(--mono); }
+  /* Camera badge shows source HEALTH (is the picture actually fresh?),
+     never just source TYPE -- REALITY does not automatically mean LIVE. */
+  .cam-health-LIVE { color:var(--green); }
+  .cam-health-STALE, .cam-health-INPUT_RECOVERING { color:var(--amber); }
+  .cam-health-CAMERA_LOST { color:var(--red); }
+
+  /* ---------------- Topbar compact status strip ---------------- */
+  .status-strip { display:flex; align-items:center; gap:.6rem; padding:0 .5rem; border-right:1px solid var(--border); margin-right:.25rem; }
+  .status-chip { display:flex; flex-direction:column; align-items:flex-start; line-height:1.2; }
+  .status-chip .k { font-size:.58rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted-2); font-weight:700; }
+  .status-chip .v { font-size:.72rem; font-weight:700; font-family:var(--mono); }
+  .status-chip .v.ok { color:var(--green); }
+  .status-chip .v.warn { color:var(--amber); }
+  .status-chip .v.bad { color:var(--red); }
+  .status-chip .v.neutral { color:var(--muted); }
+  .safety-note { font-size:.7rem; color:var(--muted); background:rgba(34,211,238,.06); border:1px solid rgba(34,211,238,.2); border-radius:.4rem; padding:.5rem .7rem; margin-top:.6rem; }
+  .safety-note b { color:var(--cyan); }
   .cam-slot { min-height:220px; }
   .cam-slot.tall { min-height:420px; }
   .cam-placeholder { display:flex; align-items:center; justify-content:center; height:100%; min-height:220px; color:var(--muted-2); font-size:.8rem; text-align:center; padding:2rem; }
@@ -599,7 +617,9 @@ HTML_TEMPLATE = """
   .spatial-layout { display:flex; gap:1.1rem; align-items:flex-start; flex-wrap:wrap; }
   .zone-map-lg { display:grid; grid-template-columns:repeat(6, 1fr); grid-auto-rows:1fr; gap:5px; width:100%; max-width:460px; aspect-ratio:6/4; flex-shrink:0; }
   .zone-map-lg.big { max-width:none; }
-  .zone-cell { border-radius:.3rem; background:#0e1720; border:1px solid var(--border-soft); display:flex; align-items:center; justify-content:center; font-size:.72rem; color:#3f5566; font-weight:600; font-family:var(--mono); transition:background .2s; }
+  .zone-cell { border-radius:.3rem; background:#0e1720; border:1px solid var(--border-soft); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.15rem; font-size:.72rem; color:#3f5566; font-weight:600; font-family:var(--mono); transition:background .2s; }
+  .zone-cell .zc-id { font-size:.6rem; opacity:.75; letter-spacing:.03em; }
+  .zone-cell .zc-val { font-size:1rem; font-weight:800; line-height:1; }
   .zone-cell.load-low { color:var(--muted-2); background:#0e1720; }
   .zone-cell.load-med { background:rgba(245,177,67,.12); border-color:rgba(245,177,67,.4); color:var(--amber); font-size:.8rem; font-weight:700; }
   .zone-cell.load-high { background:rgba(242,84,91,.14); border-color:rgba(242,84,91,.45); color:var(--red); font-size:.85rem; font-weight:800; }
@@ -724,6 +744,12 @@ HTML_TEMPLATE = """
       <b>SENTINEL AI</b><span class="sep">/</span><span id="topbar-view-name">Dashboard</span>
     </div>
     <div class="topbar-right">
+      <div class="status-strip">
+        <div class="status-chip"><span class="k">Camera</span><span class="v neutral" id="strip-camera">--</span></div>
+        <div class="status-chip"><span class="k">AI</span><span class="v neutral" id="strip-ai">--</span></div>
+        <div class="status-chip"><span class="k">WAN</span><span class="v neutral" id="strip-wan">--</span></div>
+        <div class="status-chip"><span class="k">Sync</span><span class="v neutral" id="strip-sync">--</span></div>
+      </div>
       <div class="mode-switch" id="mode-switch">
         <button class="mode-btn active" id="mode-btn-reality" onclick="setOperatingMode('REALITY')">REALITY</button>
         <button class="mode-btn" id="mode-btn-simulation" onclick="setOperatingMode('SIMULATION')">SIMULATION</button>
@@ -794,6 +820,7 @@ HTML_TEMPLATE = """
             <div class="stat"><div class="label">SQLite</div><div class="value" id="db-sqlite-state">--</div></div>
             <div class="stat"><div class="label">Remote Sync</div><div class="value" id="db-sync-state">--</div></div>
           </div>
+          <div class="safety-note" id="db-safety-note"><b>SAFETY PLANE ACTIVE</b> — local detection, persistence and operator alerting continue independently of WAN state.</div>
         </div>
       </div>
 
@@ -840,7 +867,8 @@ HTML_TEMPLATE = """
     =============================================================== -->
     <section class="view" id="view-map">
       <div class="card">
-        <h2>Spatial Crowd Map (4&times;6 Occupancy Grid)</h2>
+        <h2>Spatial Occupancy Schematic (4&times;6 Zone Grid)</h2>
+        <div class="note" style="margin:-.4rem 0 .8rem 0;">Zone grid abstraction of the observed area, not a geographic floor plan. Each cell shows a zone ID and its relative occupancy count.</div>
         <div class="spatial-layout">
           <div class="zone-map-lg big" id="zone-map"></div>
           <div class="spatial-side">
@@ -1233,9 +1261,13 @@ function renderOperatingMode(data) {
   document.getElementById('mode-btn-reality').classList.toggle('active', !isSim);
   document.getElementById('mode-btn-simulation').classList.toggle('active', isSim);
 
+  // Source TYPE (where the frames come from) is set here from the
+  // authoritative operating mode. Source HEALTH (is the picture actually
+  // fresh right now?) is a completely different question, computed in
+  // render() from the real camera_health field -- REALITY does not mean
+  // "LIVE" if the camera has actually stalled.
   ['dashboard', 'monitoring', 'simulation'].forEach(function (scope) {
-    setText('cam-badge-' + scope, isSim ? 'SIMULATION' : 'LIVE');
-    setText('cam-source-' + scope, isSim ? (data.simulation_source_label || data.simulation_source_name || 'SCENARIO VIDEO') : 'LIVE CAMERA');
+    setText('cam-source-' + scope, isSim ? ('SIMULATION — ' + (data.simulation_source_label || data.simulation_source_name || 'Scenario Video')) : 'REALITY — Live Camera');
   });
   setText('mon-source', isSim ? ('SIMULATION -- ' + (data.simulation_source_label || 'Scenario Video')) : 'REALITY -- Live Camera');
 
@@ -1275,6 +1307,29 @@ function render(data) {
 
   const effectiveSeverity = riskStale ? 'STALE' : (snap ? snap.severity : 'UNKNOWN');
 
+  // ---------------- Camera badges: source HEALTH, not source type ----------------
+  ['dashboard', 'monitoring', 'simulation'].forEach(function (scope) {
+    const el = document.getElementById('cam-badge-' + scope);
+    if (!el) return;
+    el.textContent = camHealth || 'UNKNOWN';
+    el.className = 'cam-health-' + (camHealth || 'UNKNOWN');
+  });
+
+  // ---------------- Topbar compact status strip ----------------
+  const stripCamera = document.getElementById('strip-camera');
+  stripCamera.textContent = camHealth || '--';
+  stripCamera.className = 'v ' + (camHealth === 'LIVE' ? 'ok' : (camHealth === 'CAMERA_LOST' ? 'bad' : 'warn'));
+  const stripAi = document.getElementById('strip-ai');
+  stripAi.textContent = runtimeHealth.state || '--';
+  stripAi.className = 'v ' + (runtimeHealth.state === 'HEALTHY' ? 'ok' : (runtimeHealth.state === 'DEGRADED' || runtimeHealth.state === 'STARTING' ? 'warn' : (runtimeHealth.state === 'STOPPED' || runtimeHealth.state === 'NOT_STARTED' ? 'bad' : 'neutral')));
+  const stripWan = document.getElementById('strip-wan');
+  stripWan.textContent = conn.state;
+  stripWan.className = 'v ' + (conn.state === 'ONLINE' ? 'ok' : (conn.state === 'RECOVERY' ? 'ok' : (conn.state === 'DEGRADED' ? 'warn' : 'neutral')));
+  const pendingCount = metrics.events_pending + metrics.events_retrying;
+  const stripSync = document.getElementById('strip-sync');
+  stripSync.textContent = pendingCount > 0 ? (pendingCount + ' pending') : 'clear';
+  stripSync.className = 'v ' + (pendingCount > 0 ? 'warn' : 'ok');
+
   // ---------------- Dashboard KPI strip ----------------
   const riskKpi = document.getElementById('kpi-risk');
   riskKpi.className = 'kpi risk ' + (SEVERITIES.includes(effectiveSeverity) ? ('sev-' + effectiveSeverity) : '');
@@ -1304,7 +1359,7 @@ function render(data) {
   setText('db-ai-state', runtimeHealth.state || 'UNKNOWN');
   setText('db-conn-state', conn.state);
   setText('db-sqlite-state', metrics.latest_database_success !== null ? 'ACTIVE' : 'NO WRITES');
-  setText('db-sync-state', metrics.events_auth_blocked ? 'AUTH BLOCKED' : 'READY');
+  setText('db-sync-state', metrics.events_auth_blocked ? 'AUTH BLOCKED' : (conn.state === 'OFFLINE' || conn.state === 'DEGRADED' ? 'DEFERRED' : 'READY'));
 
   // ---------------- Live Monitoring page ----------------
   setBadgeClass(null, null, null); // no-op keeps setBadgeClass referenced
@@ -1354,8 +1409,11 @@ function render(data) {
   setText('health-alerts-age', `${metrics.events_local_unacknowledged} unacknowledged ${String.fromCharCode(183)} ${metrics.events_local_acknowledged} acknowledged`);
   setBadgeClass(document.getElementById('health-conn'), '', conn.state);
   setText('health-conn-age', conn.last_success_at ? ('last remote success ' + fmtAgo(conn.last_success_at)) : 'never');
-  setBadgeClass(document.getElementById('health-sync'), '', metrics.events_auth_blocked ? 'DEGRADED' : (metrics.latest_sync_success ? 'ONLINE' : conn.state));
-  setText('health-sync-age', metrics.events_auth_blocked ? 'AUTH BLOCKED' : (metrics.latest_sync_success ? ('last sync ' + fmtAgo(metrics.latest_sync_success)) : 'no successful sync yet'));
+  const syncBadgeState = metrics.events_auth_blocked ? 'DEGRADED'
+    : (conn.state === 'OFFLINE' || conn.state === 'DEGRADED') ? 'DEFERRED'
+    : (metrics.latest_sync_success ? 'ONLINE' : conn.state);
+  setBadgeClass(document.getElementById('health-sync'), '', syncBadgeState);
+  setText('health-sync-age', metrics.events_auth_blocked ? 'AUTH BLOCKED' : (metrics.latest_sync_success ? ('last sync ' + fmtAgo(metrics.latest_sync_success)) : (conn.state === 'OFFLINE' || conn.state === 'DEGRADED' ? 'deferred while WAN is affected -- safety plane unaffected' : 'no successful sync yet')));
   setText('health-mode', data.operating_mode || 'REALITY');
   setText('health-mode-age', data.operating_mode === 'SIMULATION' ? (data.simulation_source_label || '--') : 'Live camera');
 
@@ -1369,7 +1427,7 @@ function render(data) {
   setText('m-synced', metrics.events_synced);
   setText('m-failed', metrics.events_failed);
   setText('m-auth-blocked', metrics.events_auth_blocked);
-  setText('remote-sync-state', metrics.events_auth_blocked ? 'AUTH BLOCKED' : 'READY');
+  setText('remote-sync-state', metrics.events_auth_blocked ? 'AUTH BLOCKED' : (conn.state === 'OFFLINE' || conn.state === 'DEGRADED' ? 'DEFERRED (WAN affected)' : 'READY'));
 
   // ---------------- Alerts & Response ----------------
   const localAlerts = data.local_alerts || [];
@@ -1433,7 +1491,7 @@ function renderSpatialMap(snap) {
     }
   }
   mapEl.innerHTML = cells.map(function (cell) {
-    return `<div class="zone-cell ${cell.loadClass}" title="${cell.zoneId}: ${cell.val}">${cell.val}</div>`;
+    return `<div class="zone-cell ${cell.loadClass}" title="${cell.zoneId}: ${cell.val}"><span class="zc-id">${cell.zoneId}</span><span class="zc-val">${cell.val}</span></div>`;
   }).join('');
 
   setText('zone-hotspot', snap.hotspot || 'None');
