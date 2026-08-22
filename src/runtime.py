@@ -51,12 +51,17 @@ class SentinelRuntime:
         packet = self.source.read()
         if packet is None: return None
         self.health.record_frame(packet.capture_timestamp_utc)
+        # Captured immediately after the frame is read -- this must reflect
+        # how old the picture was the moment we started looking at it, not
+        # how old it is after inference finishes. Reading it after detect()
+        # would make "camera frame age" measure inference latency instead.
+        frame_age_ms = self.health.frame_age_ms()
         detections, latency = self.detector.detect(packet.frame); self.health.record_detection()
         occupancy = self.occupancy.map(detections, packet.frame.shape)
         base = self.baseline.values(); load, accumulation, redistribution = self.risk.update(occupancy.grid, base)
         primary, conditions, severity, confidence, code, action = self.scenario.evaluate(occupancy.grid, load, accumulation, redistribution, occupancy.hotspot_zone)
         self.baseline.update(occupancy.grid, abnormal=severity is not Severity.GREEN)
-        snapshot = RiskSnapshot(datetime.now(timezone.utc), packet.frame_id, packet.source_mode, occupancy.people_count, occupancy.occupancy_index, occupancy.grid, self.baseline.state, load, accumulation, redistribution, primary, conditions, severity, confidence, occupancy.hotspot_zone, action, code, self.source.health(), self.health.frame_age_ms(), latency, self.detector.model_version)
+        snapshot = RiskSnapshot(datetime.now(timezone.utc), packet.frame_id, packet.source_mode, occupancy.people_count, occupancy.occupancy_index, occupancy.grid, self.baseline.state, load, accumulation, redistribution, primary, conditions, severity, confidence, occupancy.hotspot_zone, action, code, self.source.health(), frame_age_ms, latency, self.detector.model_version)
         self.health.record_risk()
         with self._lock:
             self._latest = snapshot

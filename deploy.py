@@ -37,7 +37,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 
 from flask import Flask, Response, abort, jsonify, request
 
@@ -152,6 +152,63 @@ runtime = SentinelRuntime(
     incident_sink=_durably_accept_incident,
 )
 
+# ----------------------------------------------------------------------
+# REALITY / SIMULATION mode switching.
+#
+# Both modes build a real SentinelRuntime around a real FrameSource
+# (CAMERA for reality, VIDEO for an uploaded scenario clip) -- there is no
+# separate "simulation pipeline". Detection, occupancy, adaptive risk,
+# scenario, and severity are identical code paths in both modes; only the
+# frame source differs. _runtime_lock guarantees at most one FrameSource
+# (and therefore at most one camera/video capture owner) is ever active.
+# ----------------------------------------------------------------------
+UPLOAD_DIR = Path("data") / "uploads"
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB, generous for a short demo clip
+_ALLOWED_VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
+
+_runtime_lock = Lock()
+_operating_mode = "REALITY"  # UI-facing label; independent of contracts.SourceMode
+_simulation_source_name: str | None = None
+
+
+def _build_runtime(source_mode, source_value) -> SentinelRuntime:
+    return SentinelRuntime(
+        FrameSource(source_mode, source_value),
+        config=runtime_config,
+        incident_sink=_durably_accept_incident,
+    )
+
+
+def _switch_active_runtime(new_source_mode, new_source_value, new_label: str) -> tuple[bool, str | None]:
+    """Atomically replace the single active FrameSource/SentinelRuntime.
+
+    The new source is started before the old one is stopped, so a failed
+    switch never leaves the system with no active source; if the new
+    source fails to deliver frames the caller can detect that via its
+    camera_health and revert without ever having torn down the old one.
+    """
+    global runtime, _operating_mode
+    with _runtime_lock:
+        old_runtime = runtime
+        new_runtime = _build_runtime(new_source_mode, new_source_value)
+        new_runtime.start()
+        runtime = new_runtime
+        old_runtime.stop()
+        _operating_mode = new_label
+        return True, None
+
+
+def switch_to_reality() -> tuple[bool, str | None]:
+    return _switch_active_runtime(_source_mode, _source_value, "REALITY")
+
+
+def switch_to_simulation(video_path: str) -> tuple[bool, str | None]:
+    global _simulation_source_name
+    result = _switch_active_runtime(SourceMode.VIDEO, video_path, "SIMULATION")
+    if result[0]:
+        _simulation_source_name = Path(video_path).name
+    return result
+
 
 def _candidate_is_current(candidate) -> bool:
     """Only currently active incidents may create a fresh live alert."""
@@ -244,6 +301,23 @@ HTML_TEMPLATE = """
   .header { background:linear-gradient(135deg,#1e293b 0%,#0f172a 100%); border-bottom:1px solid #334155; padding:1.25rem 2rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.75rem; }
   .header h1 { font-size:1.5rem; color:#34d399; letter-spacing:.02em; }
   .header .subtitle { font-size:.8rem; color:#94a3b8; }
+  .header-right { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+
+  .mode-switch { display:inline-flex; background:#0f172a; border:1px solid #334155; border-radius:.5rem; padding:.2rem; gap:.2rem; }
+  .mode-btn { background:transparent; border:none; color:#94a3b8; font-weight:700; font-size:.75rem; letter-spacing:.04em; padding:.45rem .9rem; border-radius:.4rem; cursor:pointer; transition:all .15s; }
+  .mode-btn:hover { color:#e2e8f0; }
+  .mode-btn.active { background:#1d4ed8; color:#fff; }
+  .mode-btn.active#mode-btn-simulation { background:#7c3aed; }
+
+  .mode-bar { max-width:1600px; margin:0 auto; padding:.6rem 2rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.6rem; background:#141c2e; border-bottom:1px solid #263248; }
+  .mode-source-label { font-size:.75rem; font-weight:700; color:#e2e8f0; letter-spacing:.03em; margin-right:1rem; }
+  .mode-tag { font-size:.7rem; color:#64748b; letter-spacing:.03em; }
+  .upload-btn { display:inline-block; background:#7c3aed; color:#fff; font-size:.75rem; font-weight:700; padding:.5rem .9rem; border-radius:.4rem; cursor:pointer; }
+  .upload-btn:hover { background:#6d28d9; }
+  .upload-btn input { display:none; }
+  #simulation-upload-status { font-size:.72rem; color:#94a3b8; margin-left:.6rem; }
+
+  .simulation-explainer { max-width:1600px; margin:0 auto; padding:.65rem 2rem; font-size:.78rem; color:#c4b5fd; background:rgba(124,58,237,.08); border-bottom:1px solid rgba(124,58,237,.25); }
   .container { max-width:1600px; margin:0 auto; padding:1.5rem 2rem; display:grid; grid-template-columns:1fr 1fr; gap:1.25rem; }
   @media (max-width:1000px){ .container{ grid-template-columns:1fr; } }
   .card { background:#1e293b; border:1px solid #334155; border-radius:.75rem; padding:1.25rem; }
@@ -351,11 +425,31 @@ HTML_TEMPLATE = """
   <div class="header">
     <div>
       <h1>SENTINEL AI</h1>
-      <div class="subtitle">Station Emergency Network for Transit Intelligence, Notification and Early-warning &mdash; Continuity Plane</div>
+      <div class="subtitle">Predictive Crowd Safety for Railway Stations</div>
     </div>
-    <div>
+    <div class="header-right">
+      <div class="mode-switch" id="mode-switch">
+        <button class="mode-btn active" id="mode-btn-reality" onclick="setOperatingMode('REALITY')">REALITY</button>
+        <button class="mode-btn" id="mode-btn-simulation" onclick="setOperatingMode('SIMULATION')">SIMULATION</button>
+      </div>
       <span id="conn-badge" class="badge badge-ONLINE">CONNECTIVITY: --</span>
     </div>
+  </div>
+
+  <div class="mode-bar" id="mode-bar">
+    <div class="mode-bar-left">
+      <span class="mode-source-label" id="mode-source-label">SOURCE: LIVE CAMERA</span>
+      <span class="mode-tag" id="mode-tag">MODE: REALITY</span>
+    </div>
+    <div class="mode-bar-right" id="simulation-controls" style="display:none;">
+      <label class="upload-btn" for="simulation-upload">UPLOAD CROWD SCENARIO
+        <input type="file" id="simulation-upload" accept=".mp4,.avi,.mov,.mkv" onchange="uploadSimulationVideo(event)">
+      </label>
+      <span id="simulation-upload-status"></span>
+    </div>
+  </div>
+  <div class="simulation-explainer" id="simulation-explainer" style="display:none;">
+    SIMULATION MODE &mdash; this scenario is being processed locally through the same SENTINEL safety pipeline used for live camera input (real detection, real occupancy, real risk scoring). No result shown here is hard-coded.
   </div>
 
   <div class="container">
@@ -693,6 +787,8 @@ function render(data) {
   const conn = data.connectivity;
   const metrics = data.metrics;
 
+  renderOperatingMode(data);
+
   // --- Input health / stale handling ---
   const staleBanner = document.getElementById('stale-banner');
   const camHealth = runtimeHealth.camera_health || (snap ? snap.camera_health : 'CAMERA_LOST');
@@ -779,6 +875,58 @@ function forceConnectivity(state) {
   fetch(url, { method: 'POST' }).catch(() => {});
 }
 
+let currentOperatingMode = 'REALITY';
+
+function setOperatingMode(mode) {
+  if (mode === 'REALITY') {
+    fetch('/api/mode/reality', { method: 'POST' }).catch(() => {});
+  } else {
+    // SIMULATION mode is entered by uploading a scenario; just reveal the
+    // upload control here rather than switching sources with no file yet.
+    document.getElementById('simulation-controls').style.display = 'flex';
+    document.getElementById('mode-btn-simulation').classList.add('active');
+    document.getElementById('mode-btn-reality').classList.remove('active');
+  }
+}
+
+function uploadSimulationVideo(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const statusEl = document.getElementById('simulation-upload-status');
+  statusEl.textContent = 'Uploading and validating ' + file.name + '...';
+  const form = new FormData();
+  form.append('video', file);
+  fetch('/api/mode/simulation/upload', { method: 'POST', body: form })
+    .then(function (response) { return response.json(); })
+    .then(function (data) {
+      statusEl.textContent = data.success
+        ? ('Processing ' + data.file + ' through the SENTINEL pipeline.')
+        : ('Upload failed: ' + (data.error || 'unknown error'));
+    })
+    .catch(function () { statusEl.textContent = 'Upload failed: network error.'; });
+}
+
+function renderOperatingMode(data) {
+  const mode = data.operating_mode || 'REALITY';
+  currentOperatingMode = mode;
+  const isSimulation = mode === 'SIMULATION';
+
+  document.getElementById('mode-btn-reality').classList.toggle('active', !isSimulation);
+  document.getElementById('mode-btn-simulation').classList.toggle('active', isSimulation);
+  document.getElementById('simulation-controls').style.display = isSimulation ? 'flex' : 'none';
+  document.getElementById('simulation-explainer').style.display = isSimulation ? 'block' : 'none';
+
+  document.getElementById('mode-tag').textContent = 'MODE: ' + mode;
+  const sourceLabel = isSimulation
+    ? 'SOURCE: SCENARIO VIDEO' + (data.simulation_source_name ? ' (' + data.simulation_source_name + ')' : '')
+    : 'SOURCE: LIVE CAMERA';
+  document.getElementById('mode-source-label').textContent = sourceLabel;
+
+  if (!isSimulation) {
+    document.getElementById('simulation-upload-status').textContent = '';
+  }
+}
+
 // Self-scheduling poll loop: never stacks overlapping requests, and backs
 // off automatically if a single poll is slow/fails.
 async function pollLoop() {
@@ -852,8 +1000,57 @@ def status():
             "metrics": metrics.snapshot().to_dict(),
             "local_alerts": alert_center.recent(10),
             "recent_events": [record.to_dict() for record in journal.get_recent_events(15)],
+            "operating_mode": _operating_mode,
+            "simulation_source_name": _simulation_source_name,
         }
     )
+
+
+@app.route("/api/mode/reality", methods=["POST"])
+def api_switch_to_reality():
+    ok, error = switch_to_reality()
+    if not ok:
+        return jsonify({"success": False, "error": error}), 400
+    return jsonify({"success": True, "mode": "REALITY"})
+
+
+@app.route("/api/mode/simulation/upload", methods=["POST"])
+def api_upload_simulation_video():
+    """Accept a locally-uploaded crowd scenario clip and switch to it.
+
+    The clip is processed through the exact same SentinelRuntime pipeline
+    as the live camera -- real YOLO detection, real occupancy/risk/scenario
+    -- there is no separate "simulation" code path.
+    """
+    if "video" not in request.files:
+        return jsonify({"success": False, "error": "no file uploaded"}), 400
+    file = request.files["video"]
+    if not file.filename:
+        return jsonify({"success": False, "error": "no file selected"}), 400
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in _ALLOWED_VIDEO_SUFFIXES:
+        return jsonify({"success": False, "error": f"unsupported file type {suffix!r}"}), 400
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename).name  # strip any directory components
+    dest = UPLOAD_DIR / safe_name
+    file.save(dest)
+    if dest.stat().st_size == 0 or dest.stat().st_size > MAX_UPLOAD_BYTES:
+        dest.unlink(missing_ok=True)
+        return jsonify({"success": False, "error": "file is empty or too large"}), 400
+
+    import cv2
+    probe = cv2.VideoCapture(str(dest))
+    valid = probe.isOpened()
+    probe.release()
+    if not valid:
+        dest.unlink(missing_ok=True)
+        return jsonify({"success": False, "error": "not a readable video file"}), 400
+
+    ok, error = switch_to_simulation(str(dest))
+    if not ok:
+        return jsonify({"success": False, "error": error}), 400
+    return jsonify({"success": True, "mode": "SIMULATION", "file": safe_name})
 
 
 @app.route("/events/recent")
