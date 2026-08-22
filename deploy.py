@@ -1339,19 +1339,45 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("SENTINEL AI - Continuity Plane (Round 2)")
     print("=" * 80)
-    # Use the literal loopback address, not "localhost": on this host,
-    # resolving "localhost" tries the IPv6 loopback (::1) first, and since
-    # the server binds IPv4-only, Windows takes ~2s to refuse that attempt
-    # before falling back to IPv4 -- adding a ~2s stall to every request
-    # (page load, /status poll, camera feed) despite the server itself
-    # responding in milliseconds. Browsing straight to 127.0.0.1 skips it.
-    print(f"Local URL: http://127.0.0.1:{port}")
+    print(f"Local URL: http://127.0.0.1:{port}  (also works: http://localhost:{port})")
     print(f"Database:  {journal.db_path}")
     print(f"Camera:    {_source_mode.value} source={_source_value!r}")
     print("=" * 80 + "\n")
+
+    # Bind both IPv4 and IPv6 loopback. On this host, resolving "localhost"
+    # tries IPv6 (::1) first; a server bound IPv4-only makes that attempt
+    # take ~2s to be refused before falling back to IPv4, stalling every
+    # request (page load, /status poll, camera feed) despite the server
+    # itself responding in milliseconds. Binding ::1 too means "localhost"
+    # connects immediately on the first address it tries, no matter which
+    # one that is. Both addresses are loopback-only -- this does not expose
+    # the app to the network.
+    from werkzeug.serving import make_server
+
+    bind_hosts = [SENTINEL_BIND_HOST]
+    if SENTINEL_BIND_HOST == "127.0.0.1":
+        bind_hosts.append("::1")
+
+    servers = []
+    for host in bind_hosts:
+        try:
+            servers.append(make_server(host, port, app, threaded=True))
+        except OSError as exc:
+            print(f"  (not binding {host}: {exc})")
+    if not servers:
+        raise RuntimeError(f"could not bind to any of {bind_hosts} on port {port}")
+
+    extra_threads = [Thread(target=server.serve_forever, daemon=True) for server in servers[1:]]
+    for thread in extra_threads:
+        thread.start()
+
     try:
-        app.run(host=SENTINEL_BIND_HOST, port=port, debug=False, threaded=True)
+        servers[0].serve_forever()
+    except KeyboardInterrupt:
+        pass
     finally:
+        for server in servers:
+            server.shutdown()
         _consumer_stop.set()
         _loop_watchdog_stop.set()
         sync_worker.stop()

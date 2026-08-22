@@ -257,7 +257,12 @@ def test_default_simulation_endpoint_reports_error_when_bundled_file_missing(mon
     assert "not available" in body["error"]
 
 
-def _wait_until(predicate, timeout_s=5.0, interval_s=0.02):
+def _wait_until(predicate, timeout_s=25.0, interval_s=0.02):
+    # 25s, not a tighter number: a cold-started real YOLO model (import +
+    # first predict()) measured ~7.8s on this machine when this test runs
+    # in isolation instead of after other tests that already warmed
+    # deploy._shared_detector. This margin keeps the test real (actual
+    # PersonDetector, no fake shortcut) instead of racing the model load.
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if predicate():
