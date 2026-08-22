@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-q
+"""
+SENTINEL AI - Yellow Zone Simulation
+Demonstrates moderate crowd conditions
+"""
 import cv2
 import numpy as np
 import time

@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "deploy_mobile.py",
+      "src": "deploy.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "deploy_mobile.py"
+      "dest": "deploy.py"
     }
   ]
 }

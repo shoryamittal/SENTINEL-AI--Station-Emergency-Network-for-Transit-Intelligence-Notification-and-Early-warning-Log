@@ -3,6 +3,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "python deploy_mobile.py"
+    "startCommand": "python deploy.py"
   }
 }

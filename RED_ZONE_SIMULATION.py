@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 PREEMPT AI - RED ZONE SIMULATION
-Shows full RED state with notifications to your number +918975073895!
+Shows full RED state with an RPF notification dispatch.
 """
 
 import sys
@@ -86,7 +86,7 @@ def main():
     # Summary
     print("\n" + "="*80)
     print("✅ RED ZONE SIMULATION COMPLETE!")
-    print("✅ Notification sent to your number +918975073895!")
+    print(f"✅ Notification dispatched to {executor.notification_system.primary_contact}!")
     print("="*80)
     print("\n📌 RPF DEPLOYMENT INSTRUCTIONS (RED STATE):")
     print("  • Deploy RPF personnel immediately")

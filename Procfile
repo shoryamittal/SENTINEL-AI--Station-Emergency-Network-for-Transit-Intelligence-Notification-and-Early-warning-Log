@@ -1,1 +1,1 @@
-web: python deploy_mobile.py
+web: python deploy.py

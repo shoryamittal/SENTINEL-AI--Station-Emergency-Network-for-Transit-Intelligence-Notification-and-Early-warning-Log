@@ -69,14 +69,16 @@ def test_occupancy_mapping():
     try:
         mapper = OccupancyMapper(grid_size=(4,6), zone_area_m2=10.0)
         print("✓ OccupancyMapper initialized")
-        
+
         # Test grid creation
         grid = mapper.create_grid((480, 640))  # 480p frame
-        assert len(grid) == 24, f"Expected 24 grid cells, got {len(grid)}"
+        assert grid["counts"].size == 24, f"Expected 24 grid cells, got {grid['counts'].size}"
         print("✓ Grid creation works")
-        
-        # Test density calculation
-        grid[0]["count"] = 10  # Put 10 people in first cell
+
+        # Test density calculation via a detection mapped into the grid
+        detections = [{"bbox": (0, 0, 10, 10), "confidence": 0.9, "center": (5, 5)}]
+        for _ in range(10):
+            grid = mapper.map_detections_to_grid(grid, detections)
         density_grid, stats = mapper.calculate_density(grid)
         assert stats["total_people"] == 10
         print("✓ Density calculation works")
@@ -225,7 +227,7 @@ def test_action_execution():
 def test_notification_system():
     """Test Notification System specifically"""
     print("\n" + "="*60)
-    print("TEST 8: NOTIFICATION SYSTEM (YOUR NUMBER +918975073895!)")
+    print("TEST 8: NOTIFICATION SYSTEM")
     print("="*60)
     
     try:
@@ -284,7 +286,7 @@ def main():
     if all_passed:
         print("🎉 ALL TESTS PASSED! ZERO BUGS FOUND!")
         print("🎉 System working perfectly!")
-        print("🎉 Notifications working with your number!")
+        print("🎉 Notification pipeline verified!")
     else:
         print("⚠️ Some tests failed - please check logs")
     print("="*60)

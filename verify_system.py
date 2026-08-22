@@ -56,6 +56,8 @@ def check_dependencies():
         ("torch", "torch"),
         ("matplotlib", "matplotlib"),
         ("pandas", "pandas"),
+        ("flask", "flask"),
+        ("streamlit", "streamlit"),
     ]
     
     all_ok = True
@@ -76,15 +78,10 @@ def check_project_structure():
     
     required_dirs = [
         "src/core",
-        "src/models",
-        "src/utils",
         "src/config",
-        "tests",
         "docs",
-        "data",
-        "models"
     ]
-    
+
     required_files = [
         "main.py",
         "src/__init__.py",
@@ -96,9 +93,9 @@ def check_project_structure():
         "src/core/prediction.py",
         "src/core/classification.py",
         "src/core/action_executor.py",
+        "src/core/notifications.py",
+        "src/core/railway_integration.py",
         "src/core/monitor.py",
-        "src/models/data_models.py",
-        "src/utils/visualizer.py",
         "src/config/config.ini",
         "requirements.txt",
         "README.md",
