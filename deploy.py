@@ -231,6 +231,26 @@ HTML_TEMPLATE = """
   .debug-btn { padding:.4rem .75rem; border-radius:.4rem; border:1px solid #334155; background:#0f172a; color:#94a3b8; font-size:.75rem; cursor:pointer; }
   .debug-btn:hover { border-color:#475569; color:#e2e8f0; }
   .camera-preview { width:100%; max-height:440px; object-fit:contain; background:#000; border-radius:.5rem; display:block; margin-top:.85rem; }
+
+  /* Zone Intelligence -- deliberately its own load palette (green/amber/red
+     tint + a distinct hotspot outline), not reused from connectivity's
+     blue/amber/neutral so it can't be confused with system health, and
+     kept lower-contrast than the crowd severity badges so it reads as
+     "spatial detail" rather than a second severity indicator. */
+  .zone-section { margin-top:1rem; padding-top:.9rem; border-top:1px solid #263248; }
+  .zone-header { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:#64748b; margin-bottom:.6rem; }
+  .zone-grid-layout { display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; }
+  .zone-map { display:grid; grid-template-columns:repeat(6, 1fr); grid-auto-rows:1fr; gap:3px; width:216px; height:144px; flex-shrink:0; }
+  .zone-cell { border-radius:.2rem; background:#1a2332; border:1px solid #263248; display:flex; align-items:center; justify-content:center; font-size:.62rem; color:#64748b; }
+  .zone-cell.load-med { background:#241d0c; border-color:#78350f; color:#fbbf24; }
+  .zone-cell.load-high { background:#241010; border-color:#7f1d1d; color:#f87171; }
+  .zone-cell.load-hotspot { background:#3b0f0f; border-color:#f87171; color:#fecaca; font-weight:700; box-shadow:0 0 0 1px #f87171 inset; }
+  .zone-side { flex:1; min-width:150px; display:flex; flex-direction:column; gap:.6rem; }
+  .zone-side .label { font-size:.65rem; text-transform:uppercase; color:#64748b; letter-spacing:.04em; margin-bottom:.15rem; }
+  .zone-side .value { font-size:.95rem; font-weight:700; color:#f1f5f9; }
+  .zone-lar { display:flex; gap:1rem; font-size:.8rem; color:#94a3b8; }
+  .zone-lar b { color:#f1f5f9; }
+  .zone-top-loaded div { font-size:.78rem; color:#cbd5e1; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -255,10 +275,11 @@ HTML_TEMPLATE = """
       <div class="grid4">
         <div class="stat"><div class="label">Camera</div><div class="value" id="camera-health">--</div></div>
         <div class="stat"><div class="label">Frame ID</div><div class="value" id="frame-id">--</div></div>
-        <div class="stat"><div class="label">Frame Age</div><div class="value" id="frame-age">--</div></div>
-        <div class="stat"><div class="label">Processing Latency</div><div class="value" id="proc-latency">--</div></div>
+        <div class="stat"><div class="label">Camera Frame Age</div><div class="value" id="frame-age">--</div></div>
+        <div class="stat"><div class="label">AI Inference Latency</div><div class="value" id="proc-latency">--</div></div>
       </div>
-      <div class="conn-note" id="last-update">Last update: --</div>
+      <div class="conn-note" id="last-update">AI update: --</div>
+      <div class="conn-note">Camera frame age reflects how fresh the picture itself is (independent of inference speed). AI inference latency is how long the last risk computation took to run on that frame.</div>
       <div class="camera-preview-label">LIVE CAMERA FEED</div>
       <img class="camera-preview" src="/camera-feed" id="camera-feed" alt="SENTINEL local camera feed">
     </div>
@@ -271,6 +292,32 @@ HTML_TEMPLATE = """
         <div class="stat"><div class="label">Occupancy Index (relative)</div><div class="value" id="occupancy-index">--</div></div>
       </div>
       <div class="conn-note">Occupancy index is a relative prototype measure, not a calibrated people/m&sup2; density.</div>
+
+      <div class="zone-section">
+        <div class="zone-header">Zone Intelligence (4&times;6 occupancy grid)</div>
+        <div class="zone-grid-layout">
+          <div class="zone-map" id="zone-map"></div>
+          <div class="zone-side">
+            <div>
+              <div class="label">Hotspot</div>
+              <div class="value" id="zone-hotspot">--</div>
+            </div>
+            <div class="zone-lar">
+              <span>L <b id="zone-l">--</b></span>
+              <span>A <b id="zone-a">--</b></span>
+              <span>R <b id="zone-r">--</b></span>
+            </div>
+            <div class="zone-top-loaded">
+              <div class="label">Top Loaded Zones</div>
+              <div id="zone-top-loaded">--</div>
+            </div>
+          </div>
+        </div>
+        <div class="grid2" style="margin-top:.75rem;">
+          <div class="stat"><div class="label">Current Crowd Behavior</div><div class="value" id="zone-scenario" style="font-size:.9rem;">--</div></div>
+          <div class="stat"><div class="label">Recommended Response</div><div class="value" id="zone-response" style="font-size:.8rem;">--</div></div>
+        </div>
+      </div>
     </div>
 
     <!-- Section 3: Adaptive risk -->
@@ -376,6 +423,66 @@ function pulseRow(name, active, detail) {
     '"></span>' + name + '</span><span>' + detail + '</span></div>';
 }
 
+function renderZoneIntelligence(snap) {
+  const mapEl = document.getElementById('zone-map');
+  const hotspotEl = document.getElementById('zone-hotspot');
+  const topLoadedEl = document.getElementById('zone-top-loaded');
+  const lEl = document.getElementById('zone-l');
+  const aEl = document.getElementById('zone-a');
+  const rEl = document.getElementById('zone-r');
+  const scenarioEl = document.getElementById('zone-scenario');
+  const responseEl = document.getElementById('zone-response');
+
+  const grid = snap && snap.occupancy_grid;
+  if (!grid || !grid.length) {
+    mapEl.innerHTML = '';
+    hotspotEl.textContent = '--';
+    topLoadedEl.innerHTML = '--';
+    lEl.textContent = aEl.textContent = rEl.textContent = '--';
+    scenarioEl.textContent = responseEl.textContent = '--';
+    return;
+  }
+
+  const rows = grid.length;
+  const cols = grid[0].length;
+  let maxVal = 1;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) maxVal = Math.max(maxVal, grid[r][c]);
+
+  const cells = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const val = grid[r][c];
+      const zoneId = 'r' + r + 'c' + c;
+      const isHotspot = snap.hotspot === zoneId && val > 0;
+      const ratio = val / maxVal;
+      let loadClass = '';
+      if (isHotspot) loadClass = 'load-hotspot';
+      else if (ratio > 0.66) loadClass = 'load-high';
+      else if (ratio > 0.33) loadClass = 'load-med';
+      cells.push({ zoneId: zoneId, val: val, loadClass: loadClass });
+    }
+  }
+
+  mapEl.innerHTML = cells.map(function (cell) {
+    return '<div class="zone-cell ' + cell.loadClass + '" title="' + cell.zoneId + ': ' + cell.val + '">' + cell.val + '</div>';
+  }).join('');
+
+  hotspotEl.textContent = snap.hotspot || 'none';
+
+  const topLoaded = cells.filter(function (c) { return c.val > 0; })
+    .sort(function (a, b) { return b.val - a.val; })
+    .slice(0, 3);
+  topLoadedEl.innerHTML = topLoaded.length
+    ? topLoaded.map(function (c) { return '<div>' + c.zoneId + ' &mdash; ' + c.val + '</div>'; }).join('')
+    : '<div>no load</div>';
+
+  lEl.textContent = snap.load_anomaly.toFixed(2);
+  aEl.textContent = snap.accumulation.toFixed(2);
+  rEl.textContent = snap.redistribution.toFixed(2);
+  scenarioEl.textContent = snap.primary_scenario;
+  responseEl.textContent = snap.recommended_action;
+}
+
 async function updateUI() {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -409,10 +516,11 @@ function render(data) {
   document.getElementById('frame-id').textContent = snap ? snap.frame_id : '--';
   document.getElementById('frame-age').textContent = snap ? fmtMs(snap.frame_age_ms) : '--';
   document.getElementById('proc-latency').textContent = snap ? fmtMs(snap.processing_latency_ms) : '--';
-  document.getElementById('last-update').textContent = 'Last update: ' + (snap ? fmtAgo(snap.timestamp_utc) : '--');
+  document.getElementById('last-update').textContent = 'AI update: ' + (snap ? fmtAgo(snap.timestamp_utc) : '--');
 
   document.getElementById('people-count').textContent = snap ? snap.people_count : '--';
   document.getElementById('occupancy-index').textContent = snap ? snap.occupancy_index.toFixed(2) : '--';
+  renderZoneIntelligence(snap);
 
   document.getElementById('load-anomaly').textContent = snap ? snap.load_anomaly.toFixed(2) : '--';
   document.getElementById('accumulation').textContent = snap ? snap.accumulation.toFixed(2) : '--';
@@ -496,10 +604,21 @@ def index():
 
 
 def _camera_mjpeg_stream():
-    """Yield the latest runtime-owned frame as a local MJPEG stream."""
+    """Yield the latest runtime-owned frame as a local MJPEG stream.
+
+    Independent of both the /status polling loop and inference: it only
+    ever reads FrameSource's latest captured frame (never re-reads the
+    camera itself), and skips re-encoding when no new frame has arrived
+    since the last one sent, instead of busy-re-yielding an unchanged image.
+    """
     import cv2
 
+    last_sent_frame_id = -1
     while True:
+        current_frame_id = runtime.source.get_latest_frame_id()
+        if current_frame_id == last_sent_frame_id:
+            time.sleep(0.02)
+            continue
         frame = runtime.source.get_latest_frame()
         if frame is None:
             time.sleep(0.05)
@@ -508,6 +627,7 @@ def _camera_mjpeg_stream():
         if not encoded:
             time.sleep(0.05)
             continue
+        last_sent_frame_id = current_frame_id
         try:
             yield (b"--frame\r\n"
                    b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
