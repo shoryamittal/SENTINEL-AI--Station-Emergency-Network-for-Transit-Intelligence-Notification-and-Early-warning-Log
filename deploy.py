@@ -544,19 +544,27 @@ HTML_TEMPLATE = """
 
   /* ---------------- Cards / stat tiles ---------------- */
   .card { background:var(--panel); border:1px solid var(--border); border-radius:.5rem; padding:1rem 1.1rem; }
-  .card h2 { font-size:.68rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:.85rem; font-weight:700; }
-  .grid-kpi { display:grid; grid-template-columns:repeat(6,1fr); gap:.7rem; margin-bottom:1rem; }
+  .card h2 { font-size:.74rem; letter-spacing:.02em; color:#a9bac6; margin-bottom:.85rem; font-weight:700; }
+  .grid-kpi { display:grid; grid-template-columns:1.4fr repeat(4,1fr); gap:.7rem; margin-bottom:1rem; align-items:stretch; }
   @media (max-width:1300px){ .grid-kpi{ grid-template-columns:repeat(3,1fr); } }
   @media (max-width:640px){ .grid-kpi{ grid-template-columns:repeat(2,1fr); } }
   .kpi { background:var(--panel); border:1px solid var(--border); border-radius:.5rem; padding:.85rem 1rem; }
   .kpi .label { font-size:.62rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:.35rem; font-weight:700; }
   .kpi .value { font-size:1.55rem; font-weight:800; color:var(--text); font-family:var(--mono); line-height:1; }
   .kpi .note { font-size:.65rem; color:var(--muted-2); margin-top:.3rem; }
-  .kpi.risk { border-width:1px; }
+  .kpi.risk { border-width:1px; padding:1rem 1.2rem; display:flex; flex-direction:column; justify-content:center; }
+  .kpi.risk .value { font-size:1.9rem; }
   .kpi.risk.sev-GREEN { border-color:rgba(53,211,153,.4); background:rgba(53,211,153,.05); } .kpi.risk.sev-GREEN .value { color:var(--green); }
   .kpi.risk.sev-YELLOW { border-color:rgba(245,177,67,.4); background:rgba(245,177,67,.05); } .kpi.risk.sev-YELLOW .value { color:var(--amber); }
   .kpi.risk.sev-RED { border-color:rgba(242,84,91,.45); background:rgba(242,84,91,.07); } .kpi.risk.sev-RED .value { color:var(--red); }
   .kpi.risk.sev-BLACK { border-color:rgba(230,237,243,.3); } .kpi.risk.sev-BLACK .value { color:var(--text); }
+  .kpi.ai-status .value { font-size:1.05rem; letter-spacing:.01em; }
+  .kpi.ai-status.state-HEALTHY .value { color:var(--green); }
+  .kpi.ai-status.state-DEGRADED .value, .kpi.ai-status.state-STARTING .value { color:var(--amber); }
+  .kpi.ai-status.state-STOPPED .value, .kpi.ai-status.state-NOT_STARTED .value { color:var(--red); }
+  .grid5 { display:grid; grid-template-columns:repeat(5,1fr); gap:.6rem; }
+  @media (max-width:1300px){ .grid5{ grid-template-columns:repeat(3,1fr); } }
+  @media (max-width:640px){ .grid5{ grid-template-columns:repeat(2,1fr); } }
 
   .stat { background:var(--bg); border:1px solid var(--border); border-radius:.4rem; padding:.65rem .8rem; }
   .stat .label { font-size:.62rem; text-transform:uppercase; color:var(--muted); letter-spacing:.05em; margin-bottom:.25rem; font-weight:700; }
@@ -603,6 +611,10 @@ HTML_TEMPLATE = """
   .cam-strip b { color:var(--text); }
 
   /* ---------------- Crowd intelligence summary (dashboard/simulation) --- */
+  .cs-headline { display:flex; align-items:baseline; gap:.35rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .cs-headline .cs-num { font-family:var(--mono); font-weight:800; font-size:1.4rem; color:var(--text); }
+  .cs-headline .cs-unit { font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin-right:.45rem; }
+  .cs-headline .cs-sep { color:var(--muted-2); }
   .summary-row { display:grid; grid-template-columns:1fr 1fr 1.2fr; gap:.7rem; margin-bottom:.9rem; }
   @media (max-width:700px){ .summary-row{ grid-template-columns:1fr; } }
   .behavior-value { font-size:.95rem; font-weight:700; color:var(--text); background:var(--bg); border:1px solid var(--border); border-radius:.4rem; padding:.55rem .7rem; }
@@ -772,8 +784,7 @@ HTML_TEMPLATE = """
         <div class="kpi"><div class="label">People</div><div class="value" id="db-people">--</div></div>
         <div class="kpi"><div class="label">Occupancy</div><div class="value" id="db-occ">--</div><div class="note">Relative index</div></div>
         <div class="kpi"><div class="label">Camera</div><div class="value" id="kpi-camera">--</div></div>
-        <div class="kpi"><div class="label">AI Latency</div><div class="value" id="kpi-ai-latency">--</div></div>
-        <div class="kpi"><div class="label">Pending Sync</div><div class="value" id="kpi-sync">--</div></div>
+        <div class="kpi ai-status" id="kpi-ai-status"><div class="label">AI Status</div><div class="value" id="kpi-ai-latency">--</div></div>
       </div>
 
       <div class="cols-2">
@@ -791,7 +802,14 @@ HTML_TEMPLATE = """
         </div>
 
         <div class="card">
-          <h2>Crowd Intelligence</h2>
+          <h2>Crowd State</h2>
+          <div class="cs-headline">
+            <span class="cs-num" id="cs-people">--</span><span class="cs-unit">people</span>
+            <span class="cs-sep">&middot;</span>
+            <span class="cs-num" id="cs-occ">--</span><span class="cs-unit">relative occupancy</span>
+            <span class="cs-sep">&middot;</span>
+            <span class="badge" id="cs-risk-badge">--</span>
+          </div>
           <div class="subhead" style="margin-top:0;">Current Hotspot</div>
           <div class="behavior-value" id="db-hotspot">--</div>
           <div class="subhead">Current Crowd Behavior</div>
@@ -814,11 +832,12 @@ HTML_TEMPLATE = """
         </div>
         <div class="card">
           <h2>System Health</h2>
-          <div class="grid2">
+          <div class="grid5">
             <div class="stat"><div class="label">AI Engine</div><div class="value" id="db-ai-state">--</div></div>
             <div class="stat"><div class="label">Connectivity</div><div class="value" id="db-conn-state">--</div></div>
             <div class="stat"><div class="label">SQLite</div><div class="value" id="db-sqlite-state">--</div></div>
             <div class="stat"><div class="label">Remote Sync</div><div class="value" id="db-sync-state">--</div></div>
+            <div class="stat"><div class="label">Pending Sync</div><div class="value" id="kpi-sync">--</div></div>
           </div>
           <div class="safety-note" id="db-safety-note"><b>SAFETY PLANE ACTIVE</b> — local detection, persistence and operator alerting continue independently of WAN state.</div>
         </div>
@@ -953,7 +972,7 @@ HTML_TEMPLATE = """
             </div>
           </div>
           <div class="card">
-            <h2>Crowd Intelligence</h2>
+            <h2>Crowd State</h2>
             <div class="summary-row">
               <div class="stat"><div class="label">People</div><div class="value" id="sim-people">--</div></div>
               <div class="stat"><div class="label">Occupancy</div><div class="value" id="sim-occ">--</div></div>
@@ -1338,7 +1357,9 @@ function render(data) {
   setText('db-people', riskSnap ? riskSnap.people_count : '--');
   setText('db-occ', riskSnap ? riskSnap.occupancy_index.toFixed(2) : '--');
   setText('kpi-camera', camHealth || '--');
-  setText('kpi-ai-latency', snap ? fmtMs(snap.processing_latency_ms) : '--');
+  const aiStatusKpi = document.getElementById('kpi-ai-status');
+  if (aiStatusKpi) aiStatusKpi.className = 'kpi ai-status state-' + (runtimeHealth.state || 'UNKNOWN');
+  setText('kpi-ai-latency', runtimeHealth.state || '--');
   setText('kpi-sync', metrics.events_pending + metrics.events_retrying);
 
   // ---------------- Dashboard camera strip ----------------
@@ -1347,7 +1368,11 @@ function render(data) {
   setText('db-proc-latency', snap ? fmtMs(snap.processing_latency_ms) : '--');
   setText('db-last-update', snap ? fmtAgo(snap.timestamp_utc) : '--');
 
-  // ---------------- Dashboard crowd intelligence summary ----------------
+  // ---------------- Dashboard crowd state summary ----------------
+  setText('cs-people', riskSnap ? riskSnap.people_count : '--');
+  setText('cs-occ', riskSnap ? riskSnap.occupancy_index.toFixed(2) : '--');
+  const csBadge = document.getElementById('cs-risk-badge');
+  if (csBadge) { csBadge.className = 'badge badge-' + (SEVERITIES.includes(effectiveSeverity) ? effectiveSeverity : 'UNKNOWN'); csBadge.textContent = effectiveSeverity; }
   setText('db-hotspot', riskSnap ? (riskSnap.hotspot || 'None') : '--');
   setText('db-scenario', riskSnap ? riskSnap.primary_scenario : '--');
   setText('db-response', riskSnap ? riskSnap.recommended_action : '--');
