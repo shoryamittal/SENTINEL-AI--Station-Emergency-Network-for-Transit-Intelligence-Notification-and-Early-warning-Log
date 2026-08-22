@@ -47,6 +47,7 @@ class SyncStatus:
     SYNCING = "SYNCING"
     SYNCED = "SYNCED"
     RETRYABLE_FAILURE = "RETRYABLE_FAILURE"
+    AUTH_BLOCKED = "AUTH_BLOCKED"
     PERMANENT_FAILURE = "PERMANENT_FAILURE"
 
 
@@ -317,6 +318,31 @@ class IncidentJournal:
             (SyncStatus.PERMANENT_FAILURE, _utc_now_iso()),
         )
 
+    def mark_auth_blocked(self, event_id: str) -> None:
+        self._update(
+            event_id,
+            "sync_status = ?, last_attempt_at = ?, next_retry_at = NULL",
+            (SyncStatus.AUTH_BLOCKED, _utc_now_iso()),
+        )
+
+    def requeue_auth_blocked(self, limit: int | None = None) -> int:
+        """Explicitly return durable auth-blocked events to the outbox."""
+        with self._write_lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                if limit is None:
+                    cursor = conn.execute("UPDATE events SET sync_status = ?, next_retry_at = NULL WHERE sync_status = ?", (SyncStatus.PENDING, SyncStatus.AUTH_BLOCKED))
+                else:
+                    cursor = conn.execute(
+                        "UPDATE events SET sync_status = ?, next_retry_at = NULL WHERE event_id IN (SELECT event_id FROM events WHERE sync_status = ? ORDER BY created_at_utc ASC LIMIT ?)",
+                        (SyncStatus.PENDING, SyncStatus.AUTH_BLOCKED, limit),
+                    )
+                conn.execute("COMMIT;")
+                return max(0, cursor.rowcount)
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
+
     def recover_interrupted_syncs(self) -> int:
         """Requeue rows stranded in SYNCING by a terminated process.
 
@@ -372,6 +398,11 @@ class IncidentJournal:
                 """,
                 (SyncStatus.PENDING, SyncStatus.RETRYABLE_FAILURE, now, limit),
             ).fetchall()
+            return [_row_to_record(row) for row in rows]
+
+    def list_auth_blocked_events(self, limit: int = 50) -> list[EventRecord]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM events WHERE sync_status = ? ORDER BY created_at_utc ASC LIMIT ?", (SyncStatus.AUTH_BLOCKED, limit)).fetchall()
             return [_row_to_record(row) for row in rows]
 
     def get_recent_events(self, limit: int = 50) -> list[EventRecord]:

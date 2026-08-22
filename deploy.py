@@ -39,7 +39,7 @@ import time
 from pathlib import Path
 from threading import Event, Thread
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, abort, jsonify, request
 
 from src import SentinelRuntime
 from src.alerts import LocalAlertCenter, optional_fast2sms_notifier
@@ -93,8 +93,11 @@ SYNC_ADAPTER_MODE = os.environ.get("SYNC_ADAPTER_MODE", MockSyncAdapter.NORMAL)
 SYNC_ADAPTER_TYPE = os.environ.get("SYNC_ADAPTER_TYPE", "MOCK").upper()
 SYNC_ENDPOINT_URL = os.environ.get("SYNC_ENDPOINT_URL", "")
 SYNC_HTTP_TIMEOUT_S = _env_float("SYNC_HTTP_TIMEOUT_S", 2.0)
+SYNC_BEARER_TOKEN = os.environ.get("SYNC_BEARER_TOKEN") or None
 CONNECTIVITY_INTERVAL_S = _env_float("CONNECTIVITY_CHECK_INTERVAL_S", 5.0)
 ENABLE_FAST2SMS = os.environ.get("ENABLE_FAST2SMS", "0") == "1"
+SENTINEL_BIND_HOST = os.environ.get("SENTINEL_BIND_HOST", "127.0.0.1")
+ENABLE_DEBUG_CONNECTIVITY = os.environ.get("ENABLE_DEBUG_CONNECTIVITY", "0") == "1"
 
 _source_value = _resolve_camera_source(CAMERA_SOURCE)
 _source_mode = SourceMode.VIDEO if isinstance(_source_value, str) else SourceMode.CAMERA
@@ -115,7 +118,7 @@ sync_adapter = MockSyncAdapter(mode=SYNC_ADAPTER_MODE)
 if SYNC_ADAPTER_TYPE == "HTTP":
     if not SYNC_ENDPOINT_URL:
         raise RuntimeError("SYNC_ENDPOINT_URL is required when SYNC_ADAPTER_TYPE=HTTP")
-    sync_adapter = HttpSyncAdapter(SYNC_ENDPOINT_URL, timeout_s=SYNC_HTTP_TIMEOUT_S)
+    sync_adapter = HttpSyncAdapter(SYNC_ENDPOINT_URL, timeout_s=SYNC_HTTP_TIMEOUT_S, bearer_token=SYNC_BEARER_TOKEN)
 elif SYNC_ADAPTER_TYPE != "MOCK":
     raise RuntimeError("SYNC_ADAPTER_TYPE must be MOCK or HTTP")
 metrics = ContinuityMetrics(journal, connectivity)
@@ -211,6 +214,10 @@ def _incident_consumer() -> None:
 
 def initialize_system() -> None:
     journal.initialize()
+    if SYNC_ADAPTER_TYPE == "HTTP" and SYNC_BEARER_TOKEN:
+        # One explicit startup requeue when credentials are configured; a
+        # renewed 401/403 blocks again rather than creating a retry storm.
+        sync_worker.resume_after_auth_refresh()
     runtime.start()
     connectivity.start()
     sync_worker.start()
@@ -381,11 +388,7 @@ HTML_TEMPLATE = """
         <div class="stat"><div class="label">Last Remote Success</div><div class="value" id="last-remote-success" style="font-size:.85rem;">--</div></div>
         <div class="stat"><div class="label">Pending Sync</div><div class="value" id="pending-sync">--</div></div>
       </div>
-      <div class="debug-controls">
-        <button class="debug-btn" onclick="forceConnectivity('OFFLINE')">Simulate OFFLINE</button>
-        <button class="debug-btn" onclick="forceConnectivity('')">Clear Override (real checks)</button>
-      </div>
-      <div class="conn-note">Simulation controls are for demoing the continuity loop where a real Wi-Fi toggle isn't available. They never affect crowd risk processing.</div>
+      {{DEBUG_CONNECTIVITY_CONTROLS}}
     </div>
 
     <!-- Section 2: Crowd state -- Station Crowd Intelligence console -->
@@ -470,6 +473,10 @@ HTML_TEMPLATE = """
         <div class="stat"><div class="label">Syncing</div><div class="value" id="m-syncing">--</div></div>
         <div class="stat"><div class="label">Synced</div><div class="value" id="m-synced">--</div></div>
         <div class="stat"><div class="label">Failed</div><div class="value" id="m-failed">--</div></div>
+      </div>
+      <div class="grid2" style="margin-top:.75rem;">
+        <div class="stat"><div class="label">Auth Blocked</div><div class="value" id="m-auth-blocked">--</div></div>
+        <div class="stat"><div class="label">Remote Sync</div><div class="value" id="remote-sync-state">--</div></div>
       </div>
     </div>
 
@@ -735,7 +742,7 @@ function render(data) {
     pulseRow('AI Engine', runtimeHealth.state === 'HEALTHY', runtimeHealth.state || 'UNKNOWN'),
     pulseRow('Risk Engine', !riskStale, riskStale ? 'STALE / UNKNOWN' : effectiveSeverity),
     pulseRow('SQLite', metrics.latest_database_success !== null, metrics.latest_database_success ? fmtAgo(metrics.latest_database_success) : 'no writes yet'),
-    pulseRow('Remote Sync', conn.state === 'ONLINE' || conn.state === 'RECOVERY', metrics.latest_sync_success ? fmtAgo(metrics.latest_sync_success) + ' since last success' : (conn.state + ' -- no successful sync yet')),
+    pulseRow('Remote Sync', !metrics.events_auth_blocked && (conn.state === 'ONLINE' || conn.state === 'RECOVERY'), metrics.events_auth_blocked ? 'AUTH BLOCKED' : (metrics.latest_sync_success ? fmtAgo(metrics.latest_sync_success) + ' since last success' : (conn.state + ' -- no successful sync yet'))),
   ];
   document.getElementById('pulse-list').innerHTML = pulses.join('');
 
@@ -748,6 +755,8 @@ function render(data) {
   document.getElementById('m-syncing').textContent = metrics.events_syncing;
   document.getElementById('m-synced').textContent = metrics.events_synced;
   document.getElementById('m-failed').textContent = metrics.events_failed;
+  document.getElementById('m-auth-blocked').textContent = metrics.events_auth_blocked;
+  document.getElementById('remote-sync-state').textContent = metrics.events_auth_blocked ? 'AUTH BLOCKED' : 'READY';
 
   // --- Recent events table ---
   const rows = (data.recent_events || []).map(function(e) {
@@ -785,7 +794,14 @@ pollLoop();
 
 @app.route("/")
 def index():
-    return HTML_TEMPLATE
+    controls = """
+      <div class=\"debug-controls\">
+        <button class=\"debug-btn\" onclick=\"forceConnectivity('OFFLINE')\">Simulate OFFLINE</button>
+        <button class=\"debug-btn\" onclick=\"forceConnectivity('')\">Clear Override (real checks)</button>
+      </div>
+      <div class=\"conn-note\">Simulation controls are for demoing the continuity loop where a real Wi-Fi toggle isn't available. They never affect crowd risk processing.</div>
+    """ if ENABLE_DEBUG_CONNECTIVITY else ""
+    return HTML_TEMPLATE.replace("{{DEBUG_CONNECTIVITY_CONTROLS}}", controls)
 
 
 def _camera_mjpeg_stream():
@@ -857,6 +873,8 @@ def debug_connectivity():
     """DEMO/DEBUG ONLY: force connectivity state to exercise the offline/
     recovery loop without a real Wi-Fi toggle. Never affects the runtime.
     """
+    if not ENABLE_DEBUG_CONNECTIVITY:
+        abort(404)
     state = request.args.get("state") or None
     valid = {None, ConnectivityState.ONLINE, ConnectivityState.OFFLINE}
     if state not in valid:
@@ -876,7 +894,7 @@ if __name__ == "__main__":
     print(f"Camera:    {_source_mode.value} source={_source_value!r}")
     print("=" * 80 + "\n")
     try:
-        app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
+        app.run(host=SENTINEL_BIND_HOST, port=port, debug=False, threaded=True)
     finally:
         _consumer_stop.set()
         sync_worker.stop()

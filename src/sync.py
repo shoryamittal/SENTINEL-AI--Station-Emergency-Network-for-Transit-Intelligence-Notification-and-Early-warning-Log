@@ -38,6 +38,7 @@ class SyncResult:
     ACCEPTED = "ACCEPTED"
     ALREADY_ACCEPTED = "ALREADY_ACCEPTED"
     RETRYABLE_FAILURE = "RETRYABLE_FAILURE"
+    AUTH_REQUIRED = "AUTH_REQUIRED"
     PERMANENT_FAILURE = "PERMANENT_FAILURE"
 
 
@@ -97,13 +98,17 @@ class HttpSyncAdapter(SyncAdapter):
     ``(status_code, response_body)``. The default transport uses urllib.
     """
 
-    def __init__(self, endpoint_url: str, timeout_s: float = 2.0, transport=None):
+    def __init__(self, endpoint_url: str, timeout_s: float = 2.0, transport=None, bearer_token: str | None = None):
         self.endpoint_url = endpoint_url
         self.timeout_s = timeout_s
         self.transport = transport or self._urllib_transport
+        self.bearer_token = bearer_token
 
     def _urllib_transport(self, endpoint_url: str, body: bytes, timeout_s: float):
-        req = request.Request(endpoint_url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+        headers = {"Content-Type": "application/json"}
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
+        req = request.Request(endpoint_url, data=body, headers=headers, method="POST")
         try:
             with request.urlopen(req, timeout=timeout_s) as response:
                 return response.status, response.read()
@@ -127,7 +132,8 @@ class HttpSyncAdapter(SyncAdapter):
             return SyncResult.ALREADY_ACCEPTED
         if status in (400, 409):
             return SyncResult.PERMANENT_FAILURE
-        # Includes 401/403 until the later auth-aware blocking tranche.
+        if status in (401, 403):
+            return SyncResult.AUTH_REQUIRED
         return SyncResult.RETRYABLE_FAILURE
 
 
@@ -169,6 +175,17 @@ class SyncWorker:
 
         self._stop = Event()
         self._thread: Thread | None = None
+        self._auth_blocked = False
+
+    @property
+    def auth_blocked(self) -> bool:
+        return self._auth_blocked
+
+    def resume_after_auth_refresh(self) -> int:
+        """Explicitly resume durable events after credentials are refreshed."""
+        requeued = self.journal.requeue_auth_blocked()
+        self._auth_blocked = False
+        return requeued
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -194,6 +211,8 @@ class SyncWorker:
 
     def run_once(self) -> bool:
         """Attempt to sync exactly one pending event. Returns True if work was done."""
+        if self._auth_blocked:
+            return False
         if not self.connectivity.permits_sync():
             return False
 
@@ -226,6 +245,11 @@ class SyncWorker:
             self.journal.mark_permanent_failure(event.event_id)
             if self.metrics is not None:
                 self.metrics.record_sync_permanent_failure()
+            return True
+
+        if result == SyncResult.AUTH_REQUIRED:
+            self.journal.mark_auth_blocked(event.event_id)
+            self._auth_blocked = True
             return True
 
         # RETRYABLE_FAILURE (and anything unrecognised, treated the same way)

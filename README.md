@@ -74,6 +74,8 @@ Flow Conflict (F) and tracker-based counterflow analysis are future work / under
 
 `MockSyncAdapter` remains the default for deterministic development and demo fault injection. An optional localhost-only HTTP qualification backend (`python qualification_server.py`) can prove server-side `event_id` uniqueness, including the timeout-after-server-success recovery case: a retry of the same UUID receives `ALREADY_ACCEPTED` and does not create a second remote row. It is a reference/qualification service, **not** production cloud infrastructure. Production deployment still requires authenticated, operator-controlled remote synchronization infrastructure.
 
+An HTTP `401`/`403` is treated separately as `AUTH_BLOCKED`: the local event remains durable and is excluded from automatic sync retries until an explicit credential refresh requeues the same original event ID. This does not change network connectivity or interrupt camera, AI, local alert, or SQLite safety functions.
+
 The default prototype connectivity probe uses a public reachability endpoint. A production deployment should instead use an operator-controlled service or health endpoint.
 
 ## Run
@@ -87,6 +89,8 @@ python deploy.py
 
 Open the operator dashboard at [http://localhost:5000](http://localhost:5000).
 
+The dashboard binds to `127.0.0.1` by default. The debug connectivity override is disabled by default (`ENABLE_DEBUG_CONNECTIVITY=0`); physical WAN loss is the preferred continuity demonstration. A controlled LAN bind requires an explicit `SENTINEL_BIND_HOST=0.0.0.0` setting.
+
 `python main.py` is an optional local Safety Plane CLI. It has no persistence or connectivity wiring; use `deploy.py` for the Round 2 demo.
 
 To run the optional qualification protocol demo in a second local terminal:
@@ -96,7 +100,7 @@ python qualification_server.py
 SYNC_ADAPTER_TYPE=HTTP SYNC_ENDPOINT_URL=http://127.0.0.1:5051/api/events python deploy.py
 ```
 
-The server binds to `127.0.0.1` by default and is intentionally unauthenticated for local qualification only.
+The server binds to `127.0.0.1` by default. `QUALIFICATION_API_TOKEN` can add a small bearer-token protocol test, but it is intentionally not a production identity system. Production deployment requires proper operator authentication, authorization, TLS, secret management, and access control.
 
 ## Qualification demo loop
 

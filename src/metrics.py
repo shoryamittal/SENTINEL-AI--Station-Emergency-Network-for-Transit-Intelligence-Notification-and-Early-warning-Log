@@ -44,6 +44,7 @@ class ContinuityMetricsSnapshot:
     events_synced: int
     events_failed: int  # PERMANENT_FAILURE only; RETRYABLE_FAILURE counts as pending-ish work-in-progress
     events_retrying: int
+    events_auth_blocked: int
     events_lost: int
 
     sync_attempts: int
@@ -67,6 +68,7 @@ class ContinuityMetricsSnapshot:
             "events_synced": self.events_synced,
             "events_failed": self.events_failed,
             "events_retrying": self.events_retrying,
+            "events_auth_blocked": self.events_auth_blocked,
             "events_lost": self.events_lost,
             "sync_attempts": self.sync_attempts,
             "retry_attempts": self.retry_attempts,
@@ -135,6 +137,7 @@ class ContinuityMetrics:
         syncing = counts.get(SyncStatus.SYNCING, 0)
         synced = counts.get(SyncStatus.SYNCED, 0)
         retrying = counts.get(SyncStatus.RETRYABLE_FAILURE, 0)
+        auth_blocked = counts.get(SyncStatus.AUTH_BLOCKED, 0)
         failed = counts.get(SyncStatus.PERMANENT_FAILURE, 0)
 
         connectivity = self.connectivity.snapshot()
@@ -157,6 +160,7 @@ class ContinuityMetrics:
                 events_synced=synced,
                 events_failed=failed,
                 events_retrying=retrying,
+                events_auth_blocked=auth_blocked,
                 events_lost=events_lost,
                 sync_attempts=self._sync_attempts,
                 retry_attempts=self._retry_attempts,

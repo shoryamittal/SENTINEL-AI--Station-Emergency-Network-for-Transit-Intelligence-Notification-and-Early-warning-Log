@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hmac
 from pathlib import Path
 
 from flask import Flask, jsonify, request
@@ -10,10 +11,22 @@ from flask import Flask, jsonify, request
 from src.qualification_backend import QualificationEventStore, QualificationResult
 
 
-def create_app(store: QualificationEventStore | None = None) -> Flask:
+def create_app(store: QualificationEventStore | None = None, api_token: str | None = None) -> Flask:
     app = Flask(__name__)
     event_store = store or QualificationEventStore(os.environ.get("QUALIFICATION_DB_PATH", str(Path("data") / "qualification-sync.db")))
     event_store.initialize()
+    expected_token = api_token if api_token is not None else os.environ.get("QUALIFICATION_API_TOKEN")
+
+    @app.before_request
+    def require_api_token():
+        if not expected_token or not request.path.startswith("/api/events"):
+            return None
+        supplied = request.headers.get("Authorization", "")
+        prefix = "Bearer "
+        valid = supplied.startswith(prefix) and hmac.compare_digest(supplied[len(prefix):], expected_token)
+        if not valid:
+            return jsonify({"error": "unauthorized"}), 401
+        return None
 
     @app.get("/health")
     def health():
