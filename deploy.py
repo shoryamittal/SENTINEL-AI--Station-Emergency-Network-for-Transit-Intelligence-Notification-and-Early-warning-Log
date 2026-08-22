@@ -282,25 +282,62 @@ HTML_TEMPLATE = """
   .debug-btn:hover { border-color:#475569; color:#e2e8f0; }
   .camera-preview { width:100%; max-height:440px; object-fit:contain; background:#000; border-radius:.5rem; display:block; margin-top:.85rem; }
 
-  /* Zone Intelligence -- deliberately its own load palette (green/amber/red
-     tint + a distinct hotspot outline), not reused from connectivity's
-     blue/amber/neutral so it can't be confused with system health, and
-     kept lower-contrast than the crowd severity badges so it reads as
-     "spatial detail" rather than a second severity indicator. */
-  .zone-section { margin-top:1rem; padding-top:.9rem; border-top:1px solid #263248; }
-  .zone-header { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:#64748b; margin-bottom:.6rem; }
-  .zone-grid-layout { display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap; }
-  .zone-map { display:grid; grid-template-columns:repeat(6, 1fr); grid-auto-rows:1fr; gap:3px; width:216px; height:144px; flex-shrink:0; }
-  .zone-cell { border-radius:.2rem; background:#1a2332; border:1px solid #263248; display:flex; align-items:center; justify-content:center; font-size:.62rem; color:#64748b; }
-  .zone-cell.load-med { background:#241d0c; border-color:#78350f; color:#fbbf24; }
-  .zone-cell.load-high { background:#241010; border-color:#7f1d1d; color:#f87171; }
-  .zone-cell.load-hotspot { background:#3b0f0f; border-color:#f87171; color:#fecaca; font-weight:700; box-shadow:0 0 0 1px #f87171 inset; }
-  .zone-side { flex:1; min-width:150px; display:flex; flex-direction:column; gap:.6rem; }
-  .zone-side .label { font-size:.65rem; text-transform:uppercase; color:#64748b; letter-spacing:.04em; margin-bottom:.15rem; }
-  .zone-side .value { font-size:.95rem; font-weight:700; color:#f1f5f9; }
-  .zone-lar { display:flex; gap:1rem; font-size:.8rem; color:#94a3b8; }
-  .zone-lar b { color:#f1f5f9; }
-  .zone-top-loaded div { font-size:.78rem; color:#cbd5e1; line-height:1.5; }
+  /* Crowd State -- "Station Crowd Intelligence" console. Deliberately its
+     own load palette (green/amber/red tint + a distinct hotspot outline),
+     not reused from connectivity's blue/amber/neutral so it can't be
+     confused with system health, and kept lower-contrast than the crowd
+     severity badges so spatial detail never reads as a second severity
+     indicator. */
+  .crowd-console h2 { margin-bottom: .9rem; }
+  .exec-metrics { display:grid; grid-template-columns:1fr 1fr 1.3fr; gap:1rem; margin-bottom:1.25rem; }
+  .exec-card { background:#0f172a; border:1px solid #334155; border-radius:.6rem; padding:1rem 1.1rem; }
+  .exec-label { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; margin-bottom:.35rem; }
+  .exec-value { font-size:2.1rem; font-weight:800; color:#f1f5f9; line-height:1.1; }
+  .exec-note { font-size:.68rem; color:#64748b; margin-top:.3rem; }
+  .exec-card.exec-risk { border-width:2px; }
+  .exec-card.exec-risk .exec-value { font-size:1.9rem; }
+  .exec-risk.sev-GREEN { border-color:#065f46; background:rgba(16,185,129,.08); }
+  .exec-risk.sev-GREEN .exec-value { color:#34d399; }
+  .exec-risk.sev-YELLOW { border-color:#92400e; background:rgba(245,158,11,.08); }
+  .exec-risk.sev-YELLOW .exec-value { color:#fbbf24; }
+  .exec-risk.sev-RED { border-color:#991b1b; background:rgba(239,68,68,.1); }
+  .exec-risk.sev-RED .exec-value { color:#f87171; }
+  .exec-risk.sev-BLACK { border-color:#475569; background:rgba(100,116,139,.12); }
+  .exec-risk.sev-BLACK .exec-value { color:#e2e8f0; }
+
+  .console-body { display:grid; grid-template-columns:1.15fr 1fr; gap:1.5rem; }
+  @media (max-width:1100px) { .console-body { grid-template-columns:1fr; } }
+  .console-subheader { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:#64748b; margin-bottom:.6rem; }
+
+  .spatial-layout { display:flex; gap:1.1rem; align-items:flex-start; flex-wrap:wrap; }
+  .zone-map-lg { display:grid; grid-template-columns:repeat(6, 1fr); grid-auto-rows:1fr; gap:4px; width:100%; max-width:400px; aspect-ratio:6/4; flex-shrink:0; }
+  .zone-cell { border-radius:.3rem; background:#161f30; border:1px solid #232f45; display:flex; align-items:center; justify-content:center; font-size:.72rem; color:#3f4c63; font-weight:500; transition:background .2s; }
+  .zone-cell.load-low { color:#64748b; background:#182130; }
+  .zone-cell.load-med { background:#241d0c; border-color:#78350f; color:#fbbf24; font-size:.8rem; font-weight:700; }
+  .zone-cell.load-high { background:#241010; border-color:#7f1d1d; color:#f87171; font-size:.85rem; font-weight:800; }
+  .zone-cell.load-hotspot { background:#3b0f0f; border-color:#f87171; color:#fecaca; font-size:.9rem; font-weight:800; box-shadow:0 0 0 1px #f87171 inset; }
+  .spatial-side { flex:1; min-width:170px; display:flex; flex-direction:column; gap:.9rem; }
+  .spatial-side .label { font-size:.65rem; text-transform:uppercase; color:#64748b; letter-spacing:.04em; margin-bottom:.25rem; }
+  .hotspot-block .value { font-size:1.4rem; font-weight:800; color:#f87171; }
+  .hotspot-block .sub { font-size:.75rem; color:#94a3b8; margin-top:.15rem; }
+  .top-zones-row { display:flex; align-items:center; gap:.5rem; font-size:.78rem; color:#cbd5e1; margin-bottom:.4rem; }
+  .top-zones-row .tz-id { width:2.6rem; color:#94a3b8; font-weight:600; }
+  .top-zones-row .tz-bar-track { flex:1; height:6px; background:#1a2332; border-radius:3px; overflow:hidden; }
+  .top-zones-row .tz-bar-fill { height:100%; background:linear-gradient(90deg,#f59e0b,#f87171); }
+  .top-zones-row .tz-val { width:2.4rem; text-align:right; font-weight:700; color:#f1f5f9; }
+
+  .lar-row { display:flex; align-items:center; gap:.6rem; font-size:.78rem; color:#94a3b8; margin-bottom:.5rem; }
+  .lar-row .lar-name { width:8.5rem; text-transform:uppercase; letter-spacing:.03em; font-size:.68rem; }
+  .lar-row .lar-bar-track { flex:1; height:8px; background:#1a2332; border-radius:4px; overflow:hidden; }
+  .lar-row .lar-bar-fill { height:100%; background:linear-gradient(90deg,#38bdf8,#818cf8); }
+  .lar-row .lar-val { width:3rem; text-align:right; font-weight:700; color:#f1f5f9; }
+  .interpretation { font-size:.8rem; color:#cbd5e1; background:#0f172a; border:1px solid #263248; border-radius:.5rem; padding:.6rem .75rem; margin-top:.3rem; }
+
+  .behavior-value { font-size:1.05rem; font-weight:700; color:#f1f5f9; background:#0f172a; border:1px solid #263248; border-radius:.5rem; padding:.65rem .8rem; }
+  .why-text { font-size:.83rem; color:#cbd5e1; line-height:1.5; background:#0f172a; border:1px solid #263248; border-radius:.5rem; padding:.65rem .8rem; }
+  .response-block { background:#0f172a; border:1px solid #263248; border-left:3px solid #34d399; border-radius:.5rem; padding:.7rem .85rem; }
+  .response-action { font-size:.92rem; font-weight:700; color:#f1f5f9; }
+  .response-zone { font-size:.75rem; color:#94a3b8; margin-top:.3rem; }
 </style>
 </head>
 <body>
@@ -334,62 +371,8 @@ HTML_TEMPLATE = """
       <img class="camera-preview" src="/camera-feed" id="camera-feed" alt="SENTINEL local camera feed">
     </div>
 
-    <!-- Section 2: Crowd state -->
-    <div class="card">
-      <h2>Crowd State</h2>
-      <div class="grid2">
-        <div class="stat"><div class="label">People Count</div><div class="value" id="people-count">--</div></div>
-        <div class="stat"><div class="label">Occupancy Index (relative)</div><div class="value" id="occupancy-index">--</div></div>
-      </div>
-      <div class="conn-note">Occupancy index is a relative prototype measure, not a calibrated people/m&sup2; density.</div>
-
-      <div class="zone-section">
-        <div class="zone-header">Zone Intelligence (4&times;6 occupancy grid)</div>
-        <div class="zone-grid-layout">
-          <div class="zone-map" id="zone-map"></div>
-          <div class="zone-side">
-            <div>
-              <div class="label">Hotspot</div>
-              <div class="value" id="zone-hotspot">--</div>
-            </div>
-            <div class="zone-lar">
-              <span>L <b id="zone-l">--</b></span>
-              <span>A <b id="zone-a">--</b></span>
-              <span>R <b id="zone-r">--</b></span>
-            </div>
-            <div class="zone-top-loaded">
-              <div class="label">Top Loaded Zones</div>
-              <div id="zone-top-loaded">--</div>
-            </div>
-          </div>
-        </div>
-        <div class="grid2" style="margin-top:.75rem;">
-          <div class="stat"><div class="label">Current Crowd Behavior</div><div class="value" id="zone-scenario" style="font-size:.9rem;">--</div></div>
-          <div class="stat"><div class="label">Recommended Response</div><div class="value" id="zone-response" style="font-size:.8rem;">--</div></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Section 3: Adaptive risk -->
-    <div class="card">
-      <h2>Adaptive Risk</h2>
-      <div class="grid4">
-        <div class="stat"><div class="label">Load Anomaly (L)</div><div class="value" id="load-anomaly">--</div></div>
-        <div class="stat"><div class="label">Accumulation (A)</div><div class="value" id="accumulation">--</div></div>
-        <div class="stat"><div class="label">Redistribution (R)</div><div class="value" id="redistribution">--</div></div>
-        <div class="stat"><div class="label">Confidence</div><div class="value" id="confidence">--</div></div>
-      </div>
-      <div class="grid2" style="margin-top:.75rem;">
-        <div class="stat"><div class="label">Scenario</div><div class="value" id="scenario" style="font-size:.95rem;">--</div></div>
-        <div class="stat" id="severity-stat"><div class="label">Severity</div><div class="value" id="severity">--</div></div>
-      </div>
-      <div class="grid2" style="margin-top:.75rem;">
-        <div class="stat"><div class="label">Hotspot</div><div class="value" id="hotspot" style="font-size:.95rem;">--</div></div>
-        <div class="stat"><div class="label">Recommended Action</div><div class="value" id="action" style="font-size:.85rem;">--</div></div>
-      </div>
-    </div>
-
-    <!-- Section 4: Connectivity -->
+    <!-- Section 4: Connectivity (paired with Input Health so row 1 has no
+         empty gap before the full-width Crowd State console below) -->
     <div class="card">
       <h2>Connectivity</h2>
       <div class="grid4">
@@ -403,6 +386,68 @@ HTML_TEMPLATE = """
         <button class="debug-btn" onclick="forceConnectivity('')">Clear Override (real checks)</button>
       </div>
       <div class="conn-note">Simulation controls are for demoing the continuity loop where a real Wi-Fi toggle isn't available. They never affect crowd risk processing.</div>
+    </div>
+
+    <!-- Section 2: Crowd state -- Station Crowd Intelligence console -->
+    <div class="card full-row crowd-console">
+      <h2>Crowd State &mdash; Station Crowd Intelligence</h2>
+
+      <!-- Executive metrics -->
+      <div class="exec-metrics">
+        <div class="exec-card">
+          <div class="exec-label">People</div>
+          <div class="exec-value" id="people-count">--</div>
+        </div>
+        <div class="exec-card">
+          <div class="exec-label">Relative Occupancy</div>
+          <div class="exec-value" id="occupancy-index">--</div>
+          <div class="exec-note">Not calibrated people/m&sup2;</div>
+        </div>
+        <div class="exec-card exec-risk" id="severity-stat">
+          <div class="exec-label">Current Risk <span id="confidence-note"></span></div>
+          <div class="exec-value" id="severity">--</div>
+        </div>
+      </div>
+
+      <div class="console-body">
+        <!-- Spatial intelligence -->
+        <div class="console-col spatial-col">
+          <div class="console-subheader">Spatial Crowd Map (4&times;6 occupancy grid)</div>
+          <div class="spatial-layout">
+            <div class="zone-map-lg" id="zone-map"></div>
+            <div class="spatial-side">
+              <div class="hotspot-block">
+                <div class="label">Current Hotspot</div>
+                <div class="value" id="zone-hotspot">--</div>
+                <div class="sub" id="zone-hotspot-load">--</div>
+              </div>
+              <div class="top-zones-block">
+                <div class="label">Top Loaded Zones</div>
+                <div id="zone-top-loaded">--</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Crowd dynamics + operator interpretation -->
+        <div class="console-col dynamics-col">
+          <div class="console-subheader">Crowd Dynamics</div>
+          <div id="lar-bars"></div>
+          <div class="interpretation" id="lar-interpretation">--</div>
+
+          <div class="console-subheader" style="margin-top:1.1rem;">Current Crowd Behavior</div>
+          <div class="behavior-value" id="zone-scenario">--</div>
+
+          <div class="console-subheader" style="margin-top:1.1rem;">Why This State?</div>
+          <div class="why-text" id="why-state">--</div>
+
+          <div class="console-subheader" style="margin-top:1.1rem;">Recommended Response</div>
+          <div class="response-block">
+            <div class="response-action" id="zone-response">--</div>
+            <div class="response-zone" id="response-zone">--</div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Section 5: Sentinel pulse -->
@@ -473,23 +518,82 @@ function pulseRow(name, active, detail) {
     '"></span>' + name + '</span><span>' + detail + '</span></div>';
 }
 
-function renderZoneIntelligence(snap) {
+// Mirrors src/scenario.py's ScenarioEngine.evaluate thresholds exactly, for
+// narration only -- never used to compute severity/scenario itself, which
+// remains solely the runtime's authoritative output.
+const SCENARIO_THRESHOLDS = { accumRed: 0.20, redistRed: 0.35, accumYellow: 0.08, redistYellow: 0.18, loadYellow: 0.25 };
+
+function levelWord(value, yellowAt, redAt) {
+  if (value >= redAt) return 'critical';
+  if (value >= yellowAt) return 'elevated';
+  return 'low';
+}
+
+function interpretDynamics(snap) {
+  const t = SCENARIO_THRESHOLDS;
+  const parts = [
+    'Accumulation ' + levelWord(snap.accumulation, t.accumYellow, t.accumRed),
+    'Redistribution ' + levelWord(snap.redistribution, t.redistYellow, t.redistRed),
+    'Load anomaly ' + levelWord(snap.load_anomaly, t.loadYellow, t.redistRed),
+  ];
+  return parts.join(' &middot; ');
+}
+
+function explainState(snap) {
+  const L = snap.load_anomaly, A = snap.accumulation, R = snap.redistribution;
+  const hotspotText = snap.hotspot ? ('near ' + snap.hotspot) : 'without a concentrated zone';
+  switch (snap.primary_scenario) {
+    case 'LOCAL_BOTTLENECK':
+      return 'A single zone is carrying an extreme concentration of people ' + hotspotText + ' (load anomaly ' + L.toFixed(2) + ').';
+    case 'ACCUMULATION':
+      return 'Accumulation (' + A.toFixed(2) + ') is building faster than it is dispersing, concentrating pressure ' + hotspotText + '.';
+    case 'MASS_REDISTRIBUTION':
+      return 'Redistribution (' + R.toFixed(2) + ') shows the crowd shifting spatially ' + hotspotText + ' rather than staying settled.';
+    case 'STABLE_HIGH_OCCUPANCY':
+      return 'Occupancy is present, but load anomaly (' + L.toFixed(2) + '), accumulation (' + A.toFixed(2) + '), and redistribution (' +
+        R.toFixed(2) + ') are all within normal range -- no abnormal transition detected.';
+    default:
+      return 'No people currently detected in the observed area.';
+  }
+}
+
+function renderLarBars(snap) {
+  const rows = [
+    ['Load Anomaly (L)', snap.load_anomaly],
+    ['Accumulation (A)', snap.accumulation],
+    ['Redistribution (R)', snap.redistribution],
+  ];
+  document.getElementById('lar-bars').innerHTML = rows.map(function (row) {
+    const pct = Math.max(0, Math.min(1, row[1])) * 100;
+    return '<div class="lar-row"><span class="lar-name">' + row[0] + '</span>' +
+      '<span class="lar-bar-track"><span class="lar-bar-fill" style="width:' + pct.toFixed(0) + '%"></span></span>' +
+      '<span class="lar-val">' + row[1].toFixed(2) + '</span></div>';
+  }).join('');
+}
+
+function renderCrowdConsole(snap) {
   const mapEl = document.getElementById('zone-map');
   const hotspotEl = document.getElementById('zone-hotspot');
+  const hotspotLoadEl = document.getElementById('zone-hotspot-load');
   const topLoadedEl = document.getElementById('zone-top-loaded');
-  const lEl = document.getElementById('zone-l');
-  const aEl = document.getElementById('zone-a');
-  const rEl = document.getElementById('zone-r');
   const scenarioEl = document.getElementById('zone-scenario');
   const responseEl = document.getElementById('zone-response');
+  const responseZoneEl = document.getElementById('response-zone');
+  const whyEl = document.getElementById('why-state');
+  const larBarsEl = document.getElementById('lar-bars');
+  const larInterpEl = document.getElementById('lar-interpretation');
 
   const grid = snap && snap.occupancy_grid;
   if (!grid || !grid.length) {
     mapEl.innerHTML = '';
     hotspotEl.textContent = '--';
+    hotspotLoadEl.textContent = '--';
     topLoadedEl.innerHTML = '--';
-    lEl.textContent = aEl.textContent = rEl.textContent = '--';
     scenarioEl.textContent = responseEl.textContent = '--';
+    responseZoneEl.textContent = '';
+    whyEl.textContent = '--';
+    larBarsEl.innerHTML = '';
+    larInterpEl.textContent = '--';
     return;
   }
 
@@ -498,6 +602,9 @@ function renderZoneIntelligence(snap) {
   let maxVal = 1;
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) maxVal = Math.max(maxVal, grid[r][c]);
 
+  // Row-major (r0c0..r{rows-1}c{cols-1}) iteration order preserves the
+  // runtime's own zone-id semantics and keeps any value ties in a
+  // deterministic, stable order.
   const cells = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -505,7 +612,7 @@ function renderZoneIntelligence(snap) {
       const zoneId = 'r' + r + 'c' + c;
       const isHotspot = snap.hotspot === zoneId && val > 0;
       const ratio = val / maxVal;
-      let loadClass = '';
+      let loadClass = 'load-low';
       if (isHotspot) loadClass = 'load-hotspot';
       else if (ratio > 0.66) loadClass = 'load-high';
       else if (ratio > 0.33) loadClass = 'load-med';
@@ -514,23 +621,36 @@ function renderZoneIntelligence(snap) {
   }
 
   mapEl.innerHTML = cells.map(function (cell) {
+    // Zero/near-zero zones are honest (never hidden) but visually
+    // subordinate -- smaller, dimmer text via .load-low -- so a mostly
+    // empty grid doesn't dominate the reader's attention.
     return '<div class="zone-cell ' + cell.loadClass + '" title="' + cell.zoneId + ': ' + cell.val + '">' + cell.val + '</div>';
   }).join('');
 
-  hotspotEl.textContent = snap.hotspot || 'none';
+  hotspotEl.textContent = snap.hotspot || 'None';
+  const hotspotCell = snap.hotspot ? cells.find(function (c) { return c.zoneId === snap.hotspot; }) : null;
+  hotspotLoadEl.textContent = hotspotCell ? ('Local load: ' + hotspotCell.val) : (snap.hotspot ? '' : 'No concentrated zone currently');
 
   const topLoaded = cells.filter(function (c) { return c.val > 0; })
-    .sort(function (a, b) { return b.val - a.val; })
+    .sort(function (a, b) { return b.val - a.val; }) // stable sort -> deterministic ties
     .slice(0, 3);
+  const topMax = topLoaded.length ? topLoaded[0].val : 1;
   topLoadedEl.innerHTML = topLoaded.length
-    ? topLoaded.map(function (c) { return '<div>' + c.zoneId + ' &mdash; ' + c.val + '</div>'; }).join('')
-    : '<div>no load</div>';
+    ? topLoaded.map(function (c) {
+        const pct = Math.max(4, (c.val / topMax) * 100);
+        return '<div class="top-zones-row"><span class="tz-id">' + c.zoneId + '</span>' +
+          '<span class="tz-bar-track"><span class="tz-bar-fill" style="width:' + pct.toFixed(0) + '%"></span></span>' +
+          '<span class="tz-val">' + c.val + '</span></div>';
+      }).join('')
+    : '<div class="top-zones-row">No loaded zones</div>';
 
-  lEl.textContent = snap.load_anomaly.toFixed(2);
-  aEl.textContent = snap.accumulation.toFixed(2);
-  rEl.textContent = snap.redistribution.toFixed(2);
+  renderLarBars(snap);
+  larInterpEl.innerHTML = interpretDynamics(snap);
+
   scenarioEl.textContent = snap.primary_scenario;
+  whyEl.textContent = explainState(snap);
   responseEl.textContent = snap.recommended_action;
+  responseZoneEl.textContent = snap.hotspot ? ('Zone: ' + snap.hotspot) : 'No specific zone';
 }
 
 async function updateUI() {
@@ -553,7 +673,7 @@ function markStatusUnavailable() {
   document.getElementById('stale-banner').style.display = 'block';
   document.getElementById('stale-banner').textContent = 'LOCAL STATUS UNAVAILABLE — last displayed values are stale. Current live risk is UNKNOWN.';
   document.getElementById('severity').textContent = 'UNKNOWN';
-  document.getElementById('severity-stat').className = 'stat';
+  document.getElementById('severity-stat').className = 'exec-card exec-risk';
   document.getElementById('last-update').textContent = 'AI update: local status unavailable';
   setBadgeClass(document.getElementById('conn-badge'), 'CONNECTIVITY', 'UNKNOWN');
   document.getElementById('conn-state').textContent = 'UNKNOWN';
@@ -586,24 +706,20 @@ function render(data) {
   document.getElementById('proc-latency').textContent = snap ? fmtMs(snap.processing_latency_ms) : '--';
   document.getElementById('last-update').textContent = 'AI update: ' + (snap ? fmtAgo(snap.timestamp_utc) : '--');
 
+  // A single coherent snapshot (riskSnap) drives every Crowd State element
+  // below -- when input/risk is stale, ALL of them fall back together
+  // (never a stale hotspot next to a fresh people count).
   const riskSnap = riskStale ? null : snap;
   document.getElementById('people-count').textContent = riskSnap ? riskSnap.people_count : '--';
   document.getElementById('occupancy-index').textContent = riskSnap ? riskSnap.occupancy_index.toFixed(2) : '--';
-  renderZoneIntelligence(riskSnap);
-
-  document.getElementById('load-anomaly').textContent = riskSnap ? riskSnap.load_anomaly.toFixed(2) : '--';
-  document.getElementById('accumulation').textContent = riskSnap ? riskSnap.accumulation.toFixed(2) : '--';
-  document.getElementById('redistribution').textContent = riskSnap ? riskSnap.redistribution.toFixed(2) : '--';
-  document.getElementById('confidence').textContent = riskSnap ? (riskSnap.confidence*100).toFixed(0) + '%' : '--';
-  document.getElementById('scenario').textContent = riskSnap ? riskSnap.primary_scenario : '--';
-  document.getElementById('hotspot').textContent = (riskSnap && riskSnap.hotspot) ? riskSnap.hotspot : 'none';
-  document.getElementById('action').textContent = riskSnap ? riskSnap.recommended_action : '--';
+  document.getElementById('confidence-note').textContent = riskSnap ? ('(' + (riskSnap.confidence * 100).toFixed(0) + '% confidence)') : '';
+  renderCrowdConsole(riskSnap);
 
   const severityEl = document.getElementById('severity');
   const severityStat = document.getElementById('severity-stat');
   const effectiveSeverity = riskStale ? 'STALE' : (snap ? snap.severity : 'UNKNOWN');
   severityEl.textContent = effectiveSeverity;
-  severityStat.className = 'stat sev-' + (SEVERITIES.includes(effectiveSeverity) ? effectiveSeverity : '');
+  severityStat.className = 'exec-card exec-risk sev-' + (SEVERITIES.includes(effectiveSeverity) ? effectiveSeverity : '');
 
   // --- Connectivity (visually distinct from crowd severity) ---
   setBadgeClass(document.getElementById('conn-badge'), 'CONNECTIVITY', conn.state);
