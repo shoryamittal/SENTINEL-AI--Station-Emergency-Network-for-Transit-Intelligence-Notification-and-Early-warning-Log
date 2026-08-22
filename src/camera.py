@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import time
 from pathlib import Path
+from threading import Lock
 from typing import Callable
 
 import numpy as np
@@ -31,6 +32,8 @@ class FrameSource:
         self._frame_id = 0
         self._last_success_mono: float | None = None
         self._recovering = False
+        self._latest_frame_lock = Lock()
+        self._latest_frame: np.ndarray | None = None
 
     def start(self) -> bool:
         if self.source_mode is SourceMode.SIMULATION:
@@ -46,6 +49,8 @@ class FrameSource:
     def read(self) -> FramePacket | None:
         if self.source_mode is SourceMode.SIMULATION:
             frame = self.simulation_factory() if self.simulation_factory else np.zeros((480, 640, 3), dtype=np.uint8)
+            with self._latest_frame_lock:
+                self._latest_frame = frame.copy()
             self._frame_id += 1
             self._last_success_mono = time.monotonic()
             return FramePacket(self._frame_id, datetime.now(timezone.utc), self.source_mode, frame)
@@ -56,9 +61,20 @@ class FrameSource:
             self._recovering = True
             return None
         self._recovering = False
+        with self._latest_frame_lock:
+            self._latest_frame = frame.copy()
         self._frame_id += 1
         self._last_success_mono = time.monotonic()
         return FramePacket(self._frame_id, datetime.now(timezone.utc), self.source_mode, frame)
+
+    def get_latest_frame(self) -> np.ndarray | None:
+        """Return a defensive copy of the latest successful frame, if any.
+
+        This accessor is for local visualization only; capture ownership and
+        all reads remain inside the runtime's single ``FrameSource``.
+        """
+        with self._latest_frame_lock:
+            return None if self._latest_frame is None else self._latest_frame.copy()
 
     def health(self) -> CameraHealth:
         if self._recovering:

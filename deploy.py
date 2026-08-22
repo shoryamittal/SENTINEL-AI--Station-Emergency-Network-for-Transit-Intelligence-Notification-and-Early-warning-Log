@@ -35,10 +35,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 from threading import Event, Thread
 
-from flask import Flask, jsonify, request
+from flask import Flask, Response, jsonify, request
 
 from src import SentinelRuntime
 from src.alerts import LocalAlertCenter, optional_fast2sms_notifier
@@ -229,6 +230,7 @@ HTML_TEMPLATE = """
   .debug-controls { display:flex; gap:.5rem; margin-top:.75rem; }
   .debug-btn { padding:.4rem .75rem; border-radius:.4rem; border:1px solid #334155; background:#0f172a; color:#94a3b8; font-size:.75rem; cursor:pointer; }
   .debug-btn:hover { border-color:#475569; color:#e2e8f0; }
+  .camera-preview { width:100%; max-height:440px; object-fit:contain; background:#000; border-radius:.5rem; display:block; margin-top:.85rem; }
 </style>
 </head>
 <body>
@@ -257,6 +259,8 @@ HTML_TEMPLATE = """
         <div class="stat"><div class="label">Processing Latency</div><div class="value" id="proc-latency">--</div></div>
       </div>
       <div class="conn-note" id="last-update">Last update: --</div>
+      <div class="camera-preview-label">LIVE CAMERA FEED</div>
+      <img class="camera-preview" src="/camera-feed" id="camera-feed" alt="SENTINEL local camera feed">
     </div>
 
     <!-- Section 2: Crowd state -->
@@ -489,6 +493,31 @@ pollLoop();
 @app.route("/")
 def index():
     return HTML_TEMPLATE
+
+
+def _camera_mjpeg_stream():
+    """Yield the latest runtime-owned frame as a local MJPEG stream."""
+    import cv2
+
+    while True:
+        frame = runtime.source.get_latest_frame()
+        if frame is None:
+            time.sleep(0.05)
+            continue
+        encoded, buffer = cv2.imencode(".jpg", frame)
+        if not encoded:
+            time.sleep(0.05)
+            continue
+        try:
+            yield (b"--frame\r\n"
+                   b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+        except GeneratorExit:
+            return
+
+
+@app.route("/camera-feed")
+def camera_feed():
+    return Response(_camera_mjpeg_stream(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 
 @app.route("/status")
