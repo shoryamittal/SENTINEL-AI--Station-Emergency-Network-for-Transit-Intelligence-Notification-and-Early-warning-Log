@@ -1,12 +1,12 @@
 # SENTINEL AI — System Architecture
 
-**Status:** Engineering source of truth  
+**Status:** Historical design notes; superseded for current implementation by [ARCHITECTURE.md](ARCHITECTURE.md)
 **Scope:** Railway-station crowd monitoring, prediction, risk classification, simulation, and operator alerting  
 **Canonical name:** **SENTINEL AI — Station Emergency Network for Transit Intelligence, Notification & Early-warning**
 
 ## 1. Purpose
 
-This document defines the target production architecture for SENTINEL AI and separates it from the current repository state. It should be treated as the primary reference before adding new modules, changing interfaces, or optimizing runtime performance.
+This document records earlier target-architecture discussion. The current implementation source of truth is [ARCHITECTURE.md](ARCHITECTURE.md), with current qualification in [QUALIFICATION.md](QUALIFICATION.md). Historical observations below are retained for context and must not be read as claims about the current `main` branch.
 
 The project goal is to move station crowd management from reactive monitoring to proactive intervention by continuously processing CCTV input, estimating crowd state, predicting near-future congestion, classifying risk, simulating possible flow outcomes, and presenting actionable recommendations to authorized operators.
 
@@ -289,4 +289,3 @@ The architecture can be considered stabilized when:
 7. The risk policy includes persistence/hysteresis.
 8. Every major module has unit and integration tests.
 9. The repository name, package metadata, environment template, and UI consistently use SENTINEL AI.
-

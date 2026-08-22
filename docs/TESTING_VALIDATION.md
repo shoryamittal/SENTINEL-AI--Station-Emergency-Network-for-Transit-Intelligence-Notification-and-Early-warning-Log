@@ -13,7 +13,7 @@ A passing initialization test means a component can be created; it does not esta
 
 ### Missing implementation package
 
-Multiple scripts import `src`, but the current GitHub branch does not contain the `src/` directory. Functional tests cannot represent the documented system until this is repaired.
+Historical note: this observation predates the current modular implementation. The current `main` branch contains `src/`; see [QUALIFICATION.md](QUALIFICATION.md) for the current test evidence.
 
 ### Simulation density-range defect
 
@@ -258,4 +258,3 @@ See test coverage, scenario coverage, and benchmark report for validated scope.
 ```
 
 This is more accurate and more credible for a safety-oriented project.
-

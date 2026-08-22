@@ -2,83 +2,80 @@
 
 Station Emergency Network for Transit Intelligence, Notification and Early-Warning
 
-SENTINEL AI is a local-first adaptive crowd-risk prototype for railway platform environments. It detects people with YOLOv8, maps occupancy into a 4×6 spatial grid, evaluates relative load anomaly, accumulation, and redistribution, generates explainable risk states, and preserves the critical warning loop during weak or lost connectivity.
+**Explainable edge crowd intelligence with a failure-tolerant local warning and recovery architecture for railway environments.**
+
+SENTINEL AI is a crowd-risk prototype for station environments. It turns camera or scenario-video frames into an explainable operator view of dynamic crowd conditions, then preserves the local warning chain when connectivity is weak or absent.
 
 > **The Internet can fail. The warning chain cannot.**
 
 Connectivity is a dependency for synchronization, not a dependency for safety.
 
-`python deploy.py` is the canonical Round 2 application and judge/demo command.
+## Why this problem is dynamic
 
-## Architecture
+Headcount alone does not tell an operator whether people are accumulating, a local bottleneck is emerging, or a previously stable area is changing rapidly. Communications can also be degraded during exactly the period when a warning matters. SENTINEL addresses both crowd-state intelligence and warning continuity. It is decision-support software, not a guarantee of stampede prevention or a railway-authorized operating procedure.
+
+## How it works
 
 ```text
-Camera / Video
-      |
-      v
-YOLOv8 Person Detection
-      |
-      v
-4x6 Occupancy Grid
-      |
-      v
-Adaptive Baseline
-      |
-      v
-L / A / R
-      |
-      v
-Scenario + Severity
-      |
-      v
-RiskSnapshot / IncidentCandidate
-      |
-      v
-SQLite Local Journal
-      +--> Local Alert
-      |
-      v
-Sync Outbox -> Connectivity Manager -> ONLINE / DEGRADED / OFFLINE / RECOVERY
-      |
-      v
-Idempotent Recovery Sync
+Camera / Scenario Video
+          ↓
+YOLO person detection → 4×6 spatial occupancy grid → adaptive baseline
+          ↓
+  L: load anomaly   A: accumulation   R: redistribution
+          ↓
+scenario classification → severity + recommended response
+          ↓
+RiskSnapshot / immutable IncidentCandidate UUID
 ```
 
-The **Safety Plane** (camera through `IncidentCandidate`) is local and does not make network calls. The **Continuity Plane** persists candidates before attempting any synchronization, delivers local alerts independently of WAN state, and replays the outbox when connectivity recovers.
+- **L — Load Anomaly:** how unusual current zone loading is relative to the adaptive baseline.
+- **A — Accumulation:** whether occupancy is persistently building over time.
+- **R — Redistribution:** whether people are moving between zones even when total headcount changes little.
 
-## Adaptive crowd intelligence
+High occupancy does not automatically mean RED. A crowded but stable scene can remain non-critical when its dynamic signals are low. The displayed Occupancy Index is relative; this prototype is not geometrically calibrated for exact people/m².
 
-SENTINEL intentionally uses three explainable dynamic signals:
+## Safety and continuity planes
 
-- **L — Load Anomaly:** compares current zone occupancy with the scene's adaptive baseline.
-- **A — Accumulation:** detects sustained crowd build-up using smoothed temporal behavior.
-- **R — Redistribution:** detects spatial movement between zones even when total people count is approximately unchanged.
+```text
+                         SENTINEL AI
+ ┌──────────────────────── SAFETY PLANE ────────────────────────┐
+ Camera → YOLO → 4×6 Grid → L/A/R → Scenario/Severity → UUID     │
+ └──────────────────────────────┬───────────────────────────────┘
+                                │ SQLite commit
+                  ┌─────────────┴─────────────┐
+                  ▼                           ▼
+            Local warning              CONTINUITY PLANE
+                                             │ durable outbox
+                                             ▼
+                            Connectivity: OFFLINE / RECOVERY / ONLINE
+                                             ▼
+                                     idempotent sync
+```
 
-The current scenarios are `STABLE_HIGH_OCCUPANCY`, `ACCUMULATION`, `MASS_REDISTRIBUTION`, `LOCAL_BOTTLENECK`, and `UNKNOWN`. High occupancy does not automatically mean RED: a crowded but stable scene can remain GREEN when dynamic anomaly signals remain low.
+No synchronous WAN call is permitted to block camera processing, inference, risk computation, incident persistence, or local warning. SQLite/WAL is the durable source of truth; remote sync is an independent background responsibility.
 
-Severity is `GREEN`, `YELLOW`, `RED`, or `BLACK`. Its values and hysteresis are prototype calibration parameters, not Indian Railways safety standards. Recommendations are prototype decision support, not authorized operating procedures.
+## Local warning and restart recovery
 
-The webcam/video prototype reports people count, zone occupancy, and a relative **Occupancy Index**. It is not geometrically calibrated for exact people/m² density.
+```text
+PERSISTED → LOCAL_DELIVERED → LOCAL_ACKNOWLEDGED
+```
 
-Flow Conflict (F) and tracker-based counterflow analysis are future work / under validation.
+`PERSISTED` means the incident is committed locally. `LOCAL_DELIVERED` means it reached the local operator warning path. `LOCAL_ACKNOWLEDGED` records explicit operator acknowledgement. Acknowledgement never changes remote sync state: for example, `LOCAL_ACKNOWLEDGED + SYNC_PENDING`, `AUTH_BLOCKED`, or `SYNCED` are all valid.
 
-## Continuity under low connectivity
+If a process stops after the SQLite commit but before local delivery, restart recovery rebuilds the original candidate from its stored payload and handles the **same UUID**. A still-current incident becomes a live local warning; an historical incident is marked locally handled without becoming a fresh audible emergency. Acknowledged state and dashboard history survive restart.
 
-`IncidentJournal` uses SQLite with WAL mode and short-lived transactional connections. Each event retains its original UUID event ID and is written locally before any remote action.
+## Remote lifecycle and identity
 
-- `LocalAlertCenter` provides a zero-network local alert path.
-- `ConnectivityManager` runs independently with hysteresis across ONLINE, DEGRADED, OFFLINE, and RECOVERY states.
-- `SyncWorker` uses a durable outbox, bounded exponential retry/backoff, and idempotent replay.
-- Historical sync does not create a new live alert.
-- Runtime-derived continuity metrics expose persisted, delivered, synchronized, and lost-event counts.
+```text
+SYNC_PENDING → SYNCING → SYNCED
+     └→ RETRYABLE_FAILURE → retry ─┘
+```
 
-`MockSyncAdapter` remains the default for deterministic development and demo fault injection. An optional localhost-only HTTP qualification backend (`python qualification_server.py`) can prove server-side `event_id` uniqueness, including the timeout-after-server-success recovery case: a retry of the same UUID receives `ALREADY_ACCEPTED` and does not create a second remote row. It is a reference/qualification service, **not** production cloud infrastructure. Production deployment still requires authenticated, operator-controlled remote synchronization infrastructure.
+`401`/`403` is `AUTH_BLOCKED`, not an Internet outage: the local event remains durable and automatic blind retry stops until credentials are refreshed. Every incident episode has one immutable UUID, reused across persistence retries, outages, restarts, interrupted sync, response loss, and recovery.
 
-An HTTP `401`/`403` is treated separately as `AUTH_BLOCKED`: the local event remains durable and is excluded from automatic sync retries until an explicit credential refresh requeues the same original event ID. This does not change network connectivity or interrupt camera, AI, local alert, or SQLite safety functions.
+The localhost qualification backend demonstrates server idempotency: if it stores event X but its response is lost, SENTINEL retries X with the same UUID. The same canonical payload yields `ALREADY_ACCEPTED` and one remote row; altered content with that UUID yields `IDEMPOTENCY_CONFLICT` and preserves the canonical payload.
 
-The default prototype connectivity probe uses a public reachability endpoint. A production deployment should instead use an operator-controlled service or health endpoint.
-
-## Run
+## Run the demo
 
 ```bash
 pip install -r requirements.txt
@@ -87,48 +84,44 @@ pytest -q tests
 python deploy.py
 ```
 
-Open the operator dashboard at [http://localhost:5000](http://localhost:5000).
+Open [http://localhost:5000](http://localhost:5000). Use **REALITY** for the configured camera, or **SIMULATION** for the bundled scenario video (with upload as an alternative). Simulation does not use fake risk output: both modes use the same `SentinelRuntime`, YOLO detector, grid, baseline, L/A/R, scenario, and severity logic; only the frame source changes.
 
-The dashboard binds to `127.0.0.1` by default. The debug connectivity override is disabled by default (`ENABLE_DEBUG_CONNECTIVITY=0`); physical WAN loss is the preferred continuity demonstration. A controlled LAN bind requires an explicit `SENTINEL_BIND_HOST=0.0.0.0` setting.
-
-`python main.py` is an optional local Safety Plane CLI. It has no persistence or connectivity wiring; use `deploy.py` for the Round 2 demo.
-
-To run the optional qualification protocol demo in a second local terminal:
+For the optional localhost qualification backend:
 
 ```bash
 python qualification_server.py
 SYNC_ADAPTER_TYPE=HTTP SYNC_ENDPOINT_URL=http://127.0.0.1:5051/api/events python deploy.py
 ```
 
-The server binds to `127.0.0.1` by default. `QUALIFICATION_API_TOKEN` can add a small bearer-token protocol test, but it is intentionally not a production identity system. Production deployment requires proper operator authentication, authorization, TLS, secret management, and access control.
+This backend is a reference qualification service, not production cloud infrastructure. See the [demo guide](docs/DEMO.md) for a complete judge flow.
 
-## Qualification demo loop
+## Operator view
 
-1. Start `python deploy.py`.
-2. Confirm frame ID and risk timestamp advance.
-3. Disable WAN, or use the clearly labelled debug connectivity override.
-4. Trigger an incident.
-5. Show the local alert and SQLite persistence.
-6. Show `SYNC_PENDING` in the outbox.
-7. Restart the app if demonstrating restart persistence.
-8. Restore connectivity.
-9. Show `RECOVERY`.
-10. Show the same event ID reaching `SYNCED`.
-11. Show `EVENTS LOST = 0`.
+The dashboard presents people count, relative occupancy, current risk, a 4×6 zone map, hotspot and loaded zones, L/A/R, explanation and recommended response, input/AI health, connectivity, local warning and acknowledgement state, remote sync state, event UUID, and events lost. Stale input is explicitly presented as stale/unknown rather than as current healthy risk.
 
-A physical WAN disconnect demonstrates real loss of reachability. The debug override is a demo control only and does not itself prove a physical network failure.
+## Engineering evidence
 
-## Feature status
-
-| Status | Capability |
+| Capability | Evidence |
 | --- | --- |
-| Implemented | YOLOv8 person detection; camera/video input; 4×6 occupancy mapping; Occupancy Index; adaptive baseline; L/A/R signals; scenario engine; severity hysteresis; local recommendations |
-| Implemented | Flask operator dashboard; SQLite WAL persistence; zero-network local alerts; connectivity state machine; store-and-forward recovery; exponential backoff; idempotent event IDs; stale-alert protection; deterministic offline tests |
-| Prototype / demo | Public reachability connectivity probe; `MockSyncAdapter`; localhost qualification HTTP backend; optional best-effort Fast2SMS notifier; manual connectivity override |
-| Future work | Calibrated people/m²; Flow Conflict F; tracker-based counterflow; production remote backend; operator-controlled health endpoint; advanced prediction; digital twin; rail-system integration |
+| Automated suite | 96 passing tests at the documented baseline |
+| Canonical verifier | `python verify_system.py` PASS |
+| Offline continuity | deterministic Round 2 end-to-end coverage |
+| Restart recovery | same immutable UUID and one SQLite row |
+| Local warning | recovery from `PERSISTED`; acknowledgement independent of sync |
+| Server idempotency | duplicate replay does not create a second remote row |
+| Lost response | same UUID retry reaches `SYNCED` |
+| Authorization | `AUTH_BLOCKED` separate from connectivity |
+| Input modes | REALITY/SIMULATION use one intelligence pipeline |
 
-## Configuration
+## Documentation
 
-Copy `.env.example` to `.env` to configure the camera source, local YOLO model, occupancy grid, local SQLite path, and continuity demo controls. `SYNC_ADAPTER_TYPE=MOCK` is the default; `SYNC_ADAPTER_MODE` is DEVELOPMENT / DEMO fault injection only. `SYNC_ADAPTER_TYPE=HTTP` selects the separate localhost qualification backend, not a production cloud backend.
+- [Architecture](docs/ARCHITECTURE.md)
+- [Judge demo guide](docs/DEMO.md)
+- [Failure matrix](docs/FAILURE_MATRIX.md)
+- [Qualification evidence](docs/QUALIFICATION.md)
+- [Limitations](docs/LIMITATIONS.md)
+- [Judge brief](docs/JUDGE_BRIEF.md)
 
-`deploy.py` is the supported Round 2 path. The repository retains legacy `app.py` and historical simulation scripts for compatibility, but they are not part of the Round 2 qualification path.
+## Scope and production boundary
+
+The current prototype demonstrates YOLO person detection, relative spatial occupancy, adaptive L/A/R signals, local-first warning, durable recovery, and idempotent store-and-forward synchronization. It does not claim exact people/m², certified thresholds, guaranteed prediction/prevention, full directional counterflow tracking, national-scale deployment, or production IAM/TLS/backend infrastructure. Production use would require operator-controlled infrastructure, station-specific calibration, security controls, retention policy, and formal operational validation.
