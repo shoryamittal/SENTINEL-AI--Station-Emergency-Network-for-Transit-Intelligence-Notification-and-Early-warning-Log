@@ -1035,7 +1035,7 @@ function render(data) {
       '<div class="local-alert-meta">Recommended response: ' + (e.recommended_action || '--') + '</div>' +
       '<div class="local-alert-meta">Status: ' + (acknowledged ? 'ACKNOWLEDGED / HISTORY' : 'ACTIVE / UNACKNOWLEDGED') +
       ' &middot; Remote: ' + e.sync_status + '</div>' +
-      (acknowledged ? '' : '<button class="ack-btn" onclick="acknowledgeAlert(\'' + e.event_id + '\')">ACKNOWLEDGE</button>') +
+      (acknowledged ? '' : '<button class="ack-btn" onclick="acknowledgeAlert(&quot;' + e.event_id + '&quot;)">ACKNOWLEDGE</button>') +
       '</div>';
   }).join('') || 'No local warnings.';
 
