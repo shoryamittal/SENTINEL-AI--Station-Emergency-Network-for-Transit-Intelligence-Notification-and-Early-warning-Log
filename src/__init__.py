@@ -14,6 +14,7 @@ from .contracts import (
     Severity,
     SourceMode,
 )
+from .runtime import SentinelRuntime
 
 __all__ = [
     "BaselineState",
@@ -23,4 +24,5 @@ __all__ = [
     "Scenario",
     "Severity",
     "SourceMode",
+    "SentinelRuntime",
 ]
