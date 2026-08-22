@@ -78,6 +78,11 @@ class AlwaysFailingDetector:
         raise RuntimeError("persistent inference failure")
 
 
+class AlwaysRedScenario:
+    def evaluate(self, *args, **kwargs):
+        return Scenario.ACCUMULATION, (), Severity.RED, 1.0, "TEST_ACTION", "Test recommendation"
+
+
 def _background_runtime(detector):
     return SentinelRuntime(
         FrameSource(SourceMode.SIMULATION, simulation_factory=lambda: np.zeros((100, 100, 3), dtype=np.uint8)),
@@ -116,3 +121,66 @@ def test_background_runtime_remains_alive_during_persistent_inference_failure():
     finally:
         runtime.stop()
     assert runtime.get_runtime_health()["state"] == "STOPPED"
+
+
+def _sink_runtime(sink):
+    runtime = _background_runtime(FakeDetector())
+    runtime.scenario = AlwaysRedScenario()
+    runtime._incident_sink = sink
+    return runtime
+
+
+def test_durable_sink_accepts_before_candidate_is_queued():
+    received_ids = []
+    runtime = _sink_runtime(lambda candidate: received_ids.append(candidate.event_id) or True)
+
+    runtime.process_once()
+    candidate = runtime.get_next_incident(timeout=0.1)
+
+    assert candidate is not None
+    assert received_ids == [candidate.event_id]
+    assert runtime.get_runtime_health()["pending_incident"] is False
+
+
+def test_sink_retry_reuses_same_candidate_until_durable_acceptance():
+    received_ids = []
+
+    def sink(candidate):
+        received_ids.append(candidate.event_id)
+        return len(received_ids) >= 3
+
+    runtime = _sink_runtime(sink)
+    runtime.process_once()
+    for _ in range(2):
+        runtime._last_sink_attempt_mono = 0.0
+        runtime.process_once()
+
+    candidate = runtime.get_next_incident(timeout=0.1)
+    assert candidate is not None
+    assert received_ids == [candidate.event_id] * 3
+    assert runtime.get_next_incident(timeout=0.01) is None
+    assert runtime._last_key == (Severity.RED, Scenario.ACCUMULATION, "r0c0")
+    assert runtime.get_latest_snapshot() is not None
+
+
+def test_background_runtime_recovers_when_incident_sink_raises_then_succeeds():
+    received_ids = []
+
+    def sink(candidate):
+        received_ids.append(candidate.event_id)
+        if len(received_ids) == 1:
+            raise RuntimeError("local journal unavailable")
+        return True
+
+    runtime = _sink_runtime(sink)
+    runtime.start()
+    try:
+        assert _wait_until(lambda: len(received_ids) >= 2 and runtime.get_next_incident(timeout=0) is not None)
+        # The assertion above consumed the only queue item; no second event
+        # exists because both sink attempts used one retained candidate.
+        assert len(set(received_ids)) == 1
+        assert runtime.get_runtime_health()["worker_alive"] is True
+        assert runtime.get_runtime_health()["incident_sink_failures"] == 1
+        assert runtime.get_latest_snapshot() is not None
+    finally:
+        runtime.stop()

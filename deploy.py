@@ -106,7 +106,6 @@ runtime_config = RuntimeConfig(
 # ----------------------------------------------------------------------
 # Component wiring
 # ----------------------------------------------------------------------
-runtime = SentinelRuntime(FrameSource(_source_mode, _source_value), config=runtime_config)
 journal = IncidentJournal(DB_PATH)
 connectivity = ConnectivityManager(interval_s=CONNECTIVITY_INTERVAL_S)
 sync_adapter = MockSyncAdapter(mode=SYNC_ADAPTER_MODE)
@@ -118,6 +117,51 @@ sync_worker = SyncWorker(journal, connectivity, sync_adapter, metrics=metrics)
 
 _consumer_stop = Event()
 _consumer_thread: Thread | None = None
+
+
+def _durably_accept_incident(candidate) -> bool:
+    """Locally commit an incident before it may enter delivery work.
+
+    This callback is injected into ``SentinelRuntime`` and deliberately only
+    accesses the local journal and lock-protected connectivity snapshot. It
+    never alerts, syncs, or invokes any remote service.
+    """
+    metrics.record_generated(candidate.event_id)
+    connectivity_state = connectivity.snapshot().state
+    inserted = journal.save_event(candidate, connectivity_state)
+    if inserted:
+        metrics.record_persisted()
+    return inserted or journal.get_event(candidate.event_id) is not None
+
+
+runtime = SentinelRuntime(
+    FrameSource(_source_mode, _source_value),
+    config=runtime_config,
+    incident_sink=_durably_accept_incident,
+)
+
+
+def _candidate_is_current(candidate) -> bool:
+    """Only currently active incidents may create a fresh live alert."""
+    snapshot = runtime.get_latest_snapshot()
+    runtime_health = runtime.get_runtime_health()
+    return bool(
+        snapshot
+        and runtime_health.get("snapshot_fresh")
+        and snapshot.severity.value != "GREEN"
+        and snapshot.primary_scenario == candidate.primary_scenario
+        and snapshot.hotspot == candidate.hotspot
+    )
+
+
+def _deliver_persisted_incident(candidate) -> None:
+    """Perform local handling after the runtime has already committed it."""
+    if _candidate_is_current(candidate):
+        alert_center.raise_alert(candidate)
+    # A delayed historical event is still marked handled locally, but is not
+    # presented as a brand-new live emergency after the scene recovered.
+    journal.mark_local_delivered(candidate.event_id)
+    metrics.record_local_delivered()
 
 
 def _persist_and_deliver_incident(candidate) -> bool:
@@ -149,12 +193,9 @@ def _incident_consumer() -> None:
         if candidate is None:
             continue
         try:
-            metrics.record_generated()
-            # Local alert fires exactly once, here, at generation time --
-            # this is the ONLY "live" alert path in the system. The sync
-            # worker (src/sync.py) only ever replays history and must never
-            # call this.
-            _persist_and_deliver_incident(candidate)
+            # The injected runtime sink has already committed this exact
+            # candidate locally. This queue is delivery/presentation only.
+            _deliver_persisted_incident(candidate)
         except Exception:
             app.logger.exception("incident consumer failed for one candidate; continuing")
 

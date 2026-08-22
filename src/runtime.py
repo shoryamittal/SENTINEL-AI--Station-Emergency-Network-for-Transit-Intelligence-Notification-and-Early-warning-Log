@@ -15,7 +15,7 @@ from .occupancy import OccupancyGrid
 from .scenario import ScenarioEngine
 
 class SentinelRuntime:
-    def __init__(self, source: FrameSource, detector=None, config: RuntimeConfig | None = None):
+    def __init__(self, source: FrameSource, detector=None, config: RuntimeConfig | None = None, incident_sink=None):
         self.config = config or RuntimeConfig(); self.source = source
         self.detector = detector or PersonDetector(self.config.model_path, self.config.confidence_threshold)
         self.occupancy = OccupancyGrid(self.config.grid_rows, self.config.grid_cols)
@@ -29,6 +29,11 @@ class SentinelRuntime:
         self._last_error_at = None
         self._last_error_type = None
         self._consecutive_failures = 0
+        self._incident_sink = incident_sink
+        self._pending_incident = None
+        self._pending_incident_key = None
+        self._last_sink_attempt_mono = 0.0
+        self._incident_sink_failures = 0
     def start(self):
         if self._thread and self._thread.is_alive(): return
         self.source.start(); self._stop.clear()
@@ -59,12 +64,60 @@ class SentinelRuntime:
             self._consecutive_failures = 0
         key = (severity, primary, occupancy.hotspot_zone)
         if severity is Severity.GREEN:
-            # GREEN closes the current incident episode. The same key can be
-            # emitted again if a later, distinct abnormal episode occurs.
-            self._last_key = None
-        elif key != self._last_key:
-            self._incidents.put(IncidentCandidate(severity, primary, conditions, occupancy.hotspot_zone, load, accumulation, redistribution, action, code, self.detector.model_version, packet.source_mode, packet.frame_id)); self._last_key = key
+            # GREEN closes the current emitted episode. A pending candidate
+            # is deliberately retained as historical audit evidence until
+            # the local sink accepts it.
+            with self._lock:
+                self._last_key = None
+        else:
+            self._begin_incident_if_needed(
+                key,
+                lambda: IncidentCandidate(severity, primary, conditions, occupancy.hotspot_zone, load, accumulation, redistribution, action, code, self.detector.model_version, packet.source_mode, packet.frame_id),
+            )
+        self._attempt_pending_incident_sink()
         return snapshot
+
+    def _begin_incident_if_needed(self, key, candidate_factory):
+        """Create at most one candidate for an abnormal episode."""
+        with self._lock:
+            if self._pending_incident is not None or key == self._last_key:
+                return
+            candidate = candidate_factory()
+            if self._incident_sink is None:
+                self._incidents.put(candidate)
+                self._last_key = key
+                return
+            self._pending_incident = candidate
+            self._pending_incident_key = key
+            # Permit the first local durability attempt immediately.
+            self._last_sink_attempt_mono = 0.0
+
+    def _attempt_pending_incident_sink(self):
+        """Try one local durability handoff without blocking inference on I/O."""
+        with self._lock:
+            candidate = self._pending_incident
+            if candidate is None:
+                return
+            now = time.monotonic()
+            if now - self._last_sink_attempt_mono < 0.25:
+                return
+            self._last_sink_attempt_mono = now
+        try:
+            accepted = bool(self._incident_sink(candidate))
+        except Exception:
+            accepted = False
+        with self._lock:
+            # The single runtime thread owns this state; the identity check
+            # still avoids changing a newer pending candidate unexpectedly.
+            if self._pending_incident is not candidate:
+                return
+            if not accepted:
+                self._incident_sink_failures += 1
+                return
+            self._incidents.put(candidate)
+            self._last_key = self._pending_incident_key
+            self._pending_incident = None
+            self._pending_incident_key = None
     def get_latest_snapshot(self):
         with self._lock: return self._latest
     def get_runtime_health(self):
@@ -77,6 +130,8 @@ class SentinelRuntime:
             last_success_at = self._last_success_at
             last_error_at = self._last_error_at
             last_error_type = self._last_error_type
+            pending_incident = self._pending_incident
+            incident_sink_failures = self._incident_sink_failures
         worker_alive = bool(self._thread and self._thread.is_alive())
         snapshot_age_ms = None
         if snapshot is not None:
@@ -104,6 +159,9 @@ class SentinelRuntime:
             "snapshot_age_ms": snapshot_age_ms,
             "snapshot_fresh": snapshot_fresh,
             "camera_health": self.source.health().value,
+            "pending_incident": pending_incident is not None,
+            "pending_incident_event_id": pending_incident.event_id if pending_incident else None,
+            "incident_sink_failures": incident_sink_failures,
         }
     def get_next_incident(self, timeout=None):
         try: return self._incidents.get(timeout=timeout)

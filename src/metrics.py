@@ -85,6 +85,7 @@ class ContinuityMetrics:
 
         self._started_at = _utc_now_iso()
         self._events_generated = 0
+        self._generated_event_ids: set[str] = set()
         self._events_persisted = 0
         self._events_local_delivered = 0
         self._sync_attempts = 0
@@ -95,8 +96,12 @@ class ContinuityMetrics:
     # ------------------------------------------------------------------
     # Writers -- called by the incident consumer / sync worker as work happens.
     # ------------------------------------------------------------------
-    def record_generated(self) -> None:
+    def record_generated(self, event_id: str | None = None) -> None:
         with self._lock:
+            if event_id is not None:
+                if event_id in self._generated_event_ids:
+                    return
+                self._generated_event_ids.add(event_id)
             self._events_generated += 1
 
     def record_persisted(self) -> None:
