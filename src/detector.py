@@ -16,8 +16,17 @@ class Detection:
 
 
 class PersonDetector:
-    def __init__(self, model_path: str = "yolov8n.pt", confidence_threshold: float = 0.5):
+    def __init__(self, model_path: str = "yolov8n.pt", confidence_threshold: float = 0.5, inference_size: int = 960):
         self.model_path, self.confidence_threshold = model_path, confidence_threshold
+        # Input resolution given to the model, not a confidence/safety
+        # threshold: Ultralytics' default (~640) downscales frames enough
+        # that small/distant people in a dense crowd go undetected even
+        # though the same model at the same confidence would find them at a
+        # larger input size. 960 was chosen by measurement as the point that
+        # meaningfully recovers recall (yolov8n.pt: ~5->~14 detections on a
+        # dense platform frame) while staying real-time (~70-90ms/frame on
+        # this machine) for the live camera.
+        self.inference_size = inference_size
         self._model = None
         self.model_version = Path(model_path).name
 
@@ -29,7 +38,9 @@ class PersonDetector:
     def detect(self, frame: np.ndarray) -> tuple[list[Detection], float]:
         started = time.perf_counter()
         self._load()
-        results = self._model.predict(frame, classes=[0], conf=self.confidence_threshold, verbose=False)
+        results = self._model.predict(
+            frame, classes=[0], conf=self.confidence_threshold, imgsz=self.inference_size, verbose=False
+        )
         detections: list[Detection] = []
         for result in results:
             for box in result.boxes:
