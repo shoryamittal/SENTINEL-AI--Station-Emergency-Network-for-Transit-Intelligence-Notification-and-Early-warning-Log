@@ -1,4 +1,4 @@
-# PREEMPT AI - Platform Change Event Detection System
+# SENTINEL AI - Railway Crowd Risk and Continuity Prototype
 # Core dependencies
 
 # Computer Vision & AI
