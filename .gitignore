@@ -150,6 +150,9 @@ models/*.onnx
 models/*.engine
 data/videos/
 data/outputs/
+data/*.db
+data/*.db-wal
+data/*.db-shm
 *.mp4
 *.avi
 *.mov
