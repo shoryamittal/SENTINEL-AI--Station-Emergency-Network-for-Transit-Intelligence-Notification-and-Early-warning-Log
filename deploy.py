@@ -119,6 +119,23 @@ _consumer_stop = Event()
 _consumer_thread: Thread | None = None
 
 
+def _persist_and_deliver_incident(candidate) -> bool:
+    """Persist a candidate once, then perform its one local delivery.
+
+    ``IncidentJournal.save_event`` is the idempotency boundary. A duplicate
+    candidate must not fire another local alert or inflate delivery metrics.
+    """
+    connectivity_state = connectivity.snapshot().state
+    inserted = journal.save_event(candidate, connectivity_state)
+    if not inserted:
+        return False
+    metrics.record_persisted()
+    alert_center.raise_alert(candidate)
+    journal.mark_local_delivered(candidate.event_id)
+    metrics.record_local_delivered()
+    return True
+
+
 def _incident_consumer() -> None:
     """Persist-then-alert-then-enqueue-sync for every incident the runtime produces.
 
@@ -132,17 +149,11 @@ def _incident_consumer() -> None:
             continue
         try:
             metrics.record_generated()
-            connectivity_state = connectivity.snapshot().state
-            inserted = journal.save_event(candidate, connectivity_state)
-            if inserted:
-                metrics.record_persisted()
             # Local alert fires exactly once, here, at generation time --
             # this is the ONLY "live" alert path in the system. The sync
             # worker (src/sync.py) only ever replays history and must never
             # call this.
-            alert_center.raise_alert(candidate)
-            journal.mark_local_delivered(candidate.event_id)
-            metrics.record_local_delivered()
+            _persist_and_deliver_incident(candidate)
         except Exception:
             app.logger.exception("incident consumer failed for one candidate; continuing")
 

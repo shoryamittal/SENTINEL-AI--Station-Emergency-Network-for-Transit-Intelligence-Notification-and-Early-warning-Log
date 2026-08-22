@@ -94,6 +94,23 @@ def test_retryable_failure_backs_off_and_is_not_lost(tmp_path, incident_factory)
     assert journal.count_events() == 1
 
 
+def test_sync_adapter_exception_returns_event_to_retryable_failure(tmp_path, incident_factory):
+    journal, connectivity, adapter, worker = make_online_journal_and_worker(tmp_path)
+
+    class RaisingAdapter:
+        def send_event(self, payload):
+            raise RuntimeError("simulated transport exception")
+
+    worker.adapter = RaisingAdapter()
+    candidate = incident_factory()
+    journal.save_event(candidate, ConnectivityState.OFFLINE)
+
+    assert worker.run_once() is True
+    record = journal.get_event(candidate.event_id)
+    assert record.sync_status == SyncStatus.RETRYABLE_FAILURE
+    assert record.retry_count == 1
+
+
 def test_sync_worker_does_not_run_while_offline(tmp_path, incident_factory):
     journal = IncidentJournal(tmp_path / "sentinel.db")
     journal.initialize()

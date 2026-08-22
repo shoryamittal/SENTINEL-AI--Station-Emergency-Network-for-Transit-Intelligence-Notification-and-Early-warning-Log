@@ -163,7 +163,12 @@ class SyncWorker:
         if self.metrics is not None:
             self.metrics.record_sync_attempt()
 
-        result = self.adapter.send_event(event.payload)
+        try:
+            result = self.adapter.send_event(event.payload)
+        except Exception:
+            # An adapter may raise on transport failures. Convert that into
+            # the normal durable retry path so the row cannot remain SYNCING.
+            result = SyncResult.RETRYABLE_FAILURE
 
         if result in (SyncResult.ACCEPTED, SyncResult.ALREADY_ACCEPTED):
             synced_at = datetime.now(timezone.utc).isoformat()
