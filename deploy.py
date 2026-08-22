@@ -48,7 +48,6 @@ from src.camera import FrameSource
 from src.config import RuntimeConfig
 from src.connectivity import ConnectivityManager, ConnectivityState
 from src.contracts import CameraHealth, IncidentCandidate, Scenario, Severity, SourceMode
-from src.dense_detector import TiledPersonDetector
 from src.detector import PersonDetector
 from src.metrics import ContinuityMetrics
 from src.persistence import IncidentJournal, LocalStatus
@@ -178,16 +177,6 @@ class _LockedDetector:
 # detection quality, only how many times the same weights get loaded.
 _shared_detector = _LockedDetector(PersonDetector(runtime_config.model_path, runtime_config.confidence_threshold))
 
-# SIMULATION-ONLY dense-scene detector. Reality's runtime and every
-# switch_to_reality() call always use _shared_detector above, unchanged.
-# This is a completely separate model instance (src/detector.py is not
-# imported or modified by src/dense_detector.py) so nothing here can affect
-# Reality even in principle -- see switch_to_simulation() below, the only
-# place this is ever passed to a runtime.
-_dense_simulation_detector = TiledPersonDetector(
-    runtime_config.model_path, runtime_config.confidence_threshold
-)
-
 runtime = SentinelRuntime(
     FrameSource(_source_mode, _source_value),
     detector=_shared_detector,
@@ -258,31 +247,27 @@ _simulation_source_path: str | None = None
 _simulation_loop_count = 0
 
 
-def _build_runtime(source_mode, source_value, detector=None) -> SentinelRuntime:
+def _build_runtime(source_mode, source_value) -> SentinelRuntime:
     return SentinelRuntime(
         FrameSource(source_mode, source_value),
-        detector=detector or _shared_detector,
+        detector=_shared_detector,
         config=runtime_config,
         incident_sink=_durably_accept_incident,
     )
 
 
-def _switch_active_runtime(new_source_mode, new_source_value, new_label: str, detector=None) -> tuple[bool, str | None]:
+def _switch_active_runtime(new_source_mode, new_source_value, new_label: str) -> tuple[bool, str | None]:
     """Atomically replace the single active FrameSource/SentinelRuntime.
 
     The new source is started before the old one is stopped, so a failed
     switch never leaves the system with no active source; if the new
     source fails to deliver frames the caller can detect that via its
     camera_health and revert without ever having torn down the old one.
-
-    ``detector`` defaults to ``_shared_detector`` (Reality's exact,
-    unmodified detector) -- only switch_to_simulation() ever passes a
-    different one.
     """
     global runtime, _operating_mode
     with _runtime_lock:
         old_runtime = runtime
-        new_runtime = _build_runtime(new_source_mode, new_source_value, detector)
+        new_runtime = _build_runtime(new_source_mode, new_source_value)
         new_runtime.start()
         runtime = new_runtime
         old_runtime.stop()
@@ -299,12 +284,8 @@ def switch_to_reality() -> tuple[bool, str | None]:
 
 
 def switch_to_simulation(video_path: str, label: str | None = None, *, _looping: bool = False) -> tuple[bool, str | None]:
-    """Switch to a scenario clip using the SIMULATION-only dense-scene
-    detector (src/dense_detector.py). This never touches _shared_detector,
-    the object Reality's runtime and switch_to_reality() always use.
-    """
     global _simulation_source_name, _simulation_source_label, _simulation_source_path, _simulation_loop_count
-    result = _switch_active_runtime(SourceMode.VIDEO, video_path, "SIMULATION", detector=_dense_simulation_detector)
+    result = _switch_active_runtime(SourceMode.VIDEO, video_path, "SIMULATION")
     if result[0]:
         _simulation_source_name = Path(video_path).name
         _simulation_source_label = label or _simulation_source_name
