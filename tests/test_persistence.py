@@ -84,6 +84,28 @@ def test_event_survives_new_connection_simulating_restart(tmp_path):
     assert record.sync_status == SyncStatus.PENDING
 
 
+def test_restart_requeues_event_stranded_in_syncing(tmp_path):
+    db_path = tmp_path / "sentinel.db"
+    candidate = make_candidate()
+
+    first_process = IncidentJournal(db_path)
+    first_process.initialize()
+    first_process.save_event(candidate, connectivity_state="ONLINE")
+    first_process.mark_syncing(candidate.event_id)
+    assert first_process.get_event(candidate.event_id).sync_status == SyncStatus.SYNCING
+
+    restarted_process = IncidentJournal(db_path)
+    restarted_process.initialize()
+
+    record = restarted_process.get_event(candidate.event_id)
+    assert record is not None
+    assert record.event_id == candidate.event_id
+    assert record.sync_status == SyncStatus.PENDING
+    assert candidate.event_id in {
+        pending.event_id for pending in restarted_process.list_pending_events()
+    }
+
+
 def test_list_pending_events_includes_pending_and_due_retries(journal):
     pending = make_candidate()
     journal.save_event(pending, connectivity_state="OFFLINE")

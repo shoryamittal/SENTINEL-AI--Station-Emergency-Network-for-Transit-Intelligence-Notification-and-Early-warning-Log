@@ -43,7 +43,11 @@ class SentinelRuntime:
         self.health.record_risk()
         with self._lock: self._latest = snapshot
         key = (severity, primary, occupancy.hotspot_zone)
-        if severity is not Severity.GREEN and key != self._last_key:
+        if severity is Severity.GREEN:
+            # GREEN closes the current incident episode. The same key can be
+            # emitted again if a later, distinct abnormal episode occurs.
+            self._last_key = None
+        elif key != self._last_key:
             self._incidents.put(IncidentCandidate(severity, primary, conditions, occupancy.hotspot_zone, load, accumulation, redistribution, action, code, self.detector.model_version, packet.source_mode, packet.frame_id)); self._last_key = key
         return snapshot
     def get_latest_snapshot(self):

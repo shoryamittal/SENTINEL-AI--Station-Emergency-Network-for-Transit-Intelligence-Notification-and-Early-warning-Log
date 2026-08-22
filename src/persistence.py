@@ -202,6 +202,10 @@ class IncidentJournal:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.executescript(_SCHEMA)
             conn.commit()
+        # SYNCING is transient process-owned state. If the previous process
+        # died after marking an event SYNCING, no worker remains to complete
+        # that attempt. Requeue the same immutable event_id on startup.
+        self.recover_interrupted_syncs()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -312,6 +316,29 @@ class IncidentJournal:
             "sync_status = ?, last_attempt_at = ?, next_retry_at = NULL",
             (SyncStatus.PERMANENT_FAILURE, _utc_now_iso()),
         )
+
+    def recover_interrupted_syncs(self) -> int:
+        """Requeue rows stranded in SYNCING by a terminated process.
+
+        The prior remote request may already have succeeded, so this preserves
+        the exact event ID and payload for backend-enforced idempotent replay.
+        """
+        with self._write_lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE;")
+            try:
+                cursor = conn.execute(
+                    """
+                    UPDATE events
+                    SET sync_status = ?, next_retry_at = NULL
+                    WHERE sync_status = ?;
+                    """,
+                    (SyncStatus.PENDING, SyncStatus.SYNCING),
+                )
+                conn.execute("COMMIT;")
+                return max(0, cursor.rowcount)
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
 
     def _update(self, event_id: str, set_clause: str, params: tuple) -> None:
         with self._write_lock, self._connect() as conn:
