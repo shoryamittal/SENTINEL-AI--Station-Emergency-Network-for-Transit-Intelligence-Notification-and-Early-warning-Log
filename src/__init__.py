@@ -1,23 +1,29 @@
-from .core.camera_feed import CameraFeed
-from .core.crowd_density import CrowdDensityAnalyzer
-from .core.occupancy_mapping import OccupancyMapper
-from .core.flow_simulation import FlowSimulator
-from .core.prediction import DensityPredictor
-from .core.classification import SituationClassifier
-from .core.action_executor import ActionExecutor
-from .core.notifications import NotificationSystem
-from .core.railway_integration import RailwayIntegration
-from .core.monitor import ContinuousMonitor
+"""Public contracts for the SENTINEL local safety plane.
+
+The runtime implementation is intentionally exported separately once it is
+available. Continuity-plane consumers should depend on ``src.contracts`` or
+these re-exports, never on camera or detector internals.
+"""
+
+from .contracts import (
+    BaselineState,
+    CameraHealth,
+    IncidentCandidate,
+    RiskSnapshot,
+    Scenario,
+    Severity,
+    SourceMode,
+)
+from .runtime import ContinuousMonitor, SentinelRuntime
 
 __all__ = [
-    "CameraFeed",
-    "CrowdDensityAnalyzer",
-    "OccupancyMapper",
-    "FlowSimulator",
-    "DensityPredictor",
-    "SituationClassifier",
-    "ActionExecutor",
-    "NotificationSystem",
-    "RailwayIntegration",
+    "BaselineState",
+    "CameraHealth",
+    "IncidentCandidate",
+    "RiskSnapshot",
+    "Scenario",
+    "Severity",
+    "SourceMode",
+    "SentinelRuntime",
     "ContinuousMonitor",
 ]
