@@ -54,3 +54,33 @@ class SentinelRuntime:
     def _run(self):
         while not self._stop.is_set():
             if self.process_once() is None: time.sleep(.03)
+
+
+class ContinuousMonitor:
+    """Small compatibility adapter for the existing ``main.py`` entry point.
+
+    It deliberately exposes no legacy density classifier or network action
+    code; all assessments flow through :class:`SentinelRuntime`.
+    """
+    def __init__(self, config: dict):
+        from .contracts import SourceMode
+        source_value = config.get("camera_source", 0)
+        mode = SourceMode.VIDEO if isinstance(source_value, str) else SourceMode.CAMERA
+        runtime_config = RuntimeConfig(
+            grid_rows=config.get("grid_rows", 4), grid_cols=config.get("grid_cols", 6),
+            confidence_threshold=config.get("confidence_threshold", .5),
+            model_path=config.get("yolo_model", "yolov8n.pt"),
+        )
+        self.runtime = SentinelRuntime(FrameSource(mode, source_value), config=runtime_config)
+        self._frames, self._started = 0, time.monotonic()
+    def run(self, display: bool = False):
+        self.runtime.start()
+        try:
+            while True:
+                snapshot = self.runtime.get_latest_snapshot()
+                if snapshot: self._frames = snapshot.frame_id
+                time.sleep(.1)
+        finally: self.runtime.stop()
+    def get_system_status(self):
+        elapsed = max(time.monotonic() - self._started, .001)
+        return {"frame_count": self._frames, "uptime_seconds": elapsed, "fps": self._frames / elapsed}

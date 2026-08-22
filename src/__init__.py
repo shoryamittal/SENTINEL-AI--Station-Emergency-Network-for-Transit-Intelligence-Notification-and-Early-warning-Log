@@ -14,7 +14,7 @@ from .contracts import (
     Severity,
     SourceMode,
 )
-from .runtime import SentinelRuntime
+from .runtime import ContinuousMonitor, SentinelRuntime
 
 __all__ = [
     "BaselineState",
@@ -25,4 +25,5 @@ __all__ = [
     "Severity",
     "SourceMode",
     "SentinelRuntime",
+    "ContinuousMonitor",
 ]
