@@ -1,0 +1,51 @@
+# Netlify Configuration for SENTINEL AI Station Intelligence Command Center
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Access-Control-Allow-Origin = "*"
+
+# Serverless function redirects for API endpoints
+[[redirects]]
+  from = "/status"
+  to = "/.netlify/functions/status"
+  status = 200
+
+[[redirects]]
+  from = "/api/incident/report"
+  to = "/.netlify/functions/incident-report"
+  status = 200
+
+[[redirects]]
+  from = "/api/cameras"
+  to = "/.netlify/functions/cameras"
+  status = 200
+
+[[redirects]]
+  from = "/api/camera/settings"
+  to = "/.netlify/functions/camera-settings"
+  status = 200
+
+# Mock CCTV streams / placeholder for cloud deployment
+[[redirects]]
+  from = "/cctv-feed/*"
+  to = "/camera-placeholder.svg"
+  status = 200
+
+[[redirects]]
+  from = "/camera-feed"
+  to = "/camera-placeholder.svg"
+  status = 200
+
+# Single Page App fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

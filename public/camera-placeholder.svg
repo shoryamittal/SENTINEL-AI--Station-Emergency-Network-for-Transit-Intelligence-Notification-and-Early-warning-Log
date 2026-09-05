@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#050a12"/>
+      <stop offset="100%" stop-color="#0c192c"/>
+    </linearGradient>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <path d="M 30 0 L 0 0 0 30" fill="none" stroke="rgba(0, 240, 255, 0.05)" stroke-width="1"/>
+    </pattern>
+  </defs>
+  
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <rect width="640" height="360" fill="url(#grid)"/>
+
+  <!-- Scanning Line -->
+  <line x1="0" y1="180" x2="640" y2="180" stroke="rgba(0, 240, 255, 0.2)" stroke-width="2">
+    <animate attributeName="y1" values="20;340;20" dur="4s" repeatCount="indefinite"/>
+    <animate attributeName="y2" values="20;340;20" dur="4s" repeatCount="indefinite"/>
+  </line>
+
+  <!-- Camera Frame UI -->
+  <rect x="20" y="20" width="600" height="320" rx="8" fill="none" stroke="rgba(0, 240, 255, 0.2)" stroke-width="1.5" stroke-dasharray="10 6"/>
+  
+  <!-- Reticle -->
+  <circle cx="320" cy="180" r="40" fill="none" stroke="#00f0ff" stroke-width="1.5" opacity="0.6"/>
+  <line x1="320" y1="130" x2="320" y2="150" stroke="#00f0ff" stroke-width="2"/>
+  <line x1="320" y1="210" x2="320" y2="230" stroke="#00f0ff" stroke-width="2"/>
+  <line x1="270" y1="180" x2="290" y2="180" stroke="#00f0ff" stroke-width="2"/>
+  <line x1="350" y1="180" x2="370" y2="180" stroke="#00f0ff" stroke-width="2"/>
+
+  <!-- Synthetic Bounding Box 1 -->
+  <rect x="230" y="140" width="55" height="110" rx="4" fill="none" stroke="#00ff88" stroke-width="2"/>
+  <rect x="230" y="125" width="70" height="15" fill="#00ff88"/>
+  <text x="233" y="136" fill="#000" font-family="monospace" font-size="9" font-weight="bold">PERSON 96%</text>
+
+  <!-- Synthetic Bounding Box 2 -->
+  <rect x="360" y="150" width="55" height="105" rx="4" fill="none" stroke="#00f0ff" stroke-width="2"/>
+  <rect x="360" y="135" width="70" height="15" fill="#00f0ff"/>
+  <text x="363" y="146" fill="#000" font-family="monospace" font-size="9" font-weight="bold">PERSON 91%</text>
+
+  <!-- Header HUD -->
+  <text x="40" y="55" fill="#00f0ff" font-family="monospace" font-size="12" font-weight="bold" letter-spacing="2">● LIVE FEED · YOLOv8s DETECTION ACTIVE</text>
+  <text x="40" y="75" fill="#64748b" font-family="monospace" font-size="10">SENTINEL EDGE SIMULATION STREAM</text>
+  <text x="590" y="55" text-anchor="end" fill="#00ff88" font-family="monospace" font-size="12" font-weight="bold">30.0 FPS</text>
+</svg>
