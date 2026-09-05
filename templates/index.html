@@ -216,9 +216,11 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 1.6rem;
+    padding: 0.6rem 1.6rem;
     gap: 1rem;
     z-index: 30;
+    min-height: 64px;
+    box-sizing: border-box;
   }
 
   .topbar-left {
@@ -227,6 +229,8 @@
     gap: 0.85rem;
     font-size: 0.92rem;
     color: var(--text-secondary);
+    flex-wrap: wrap;
+    flex-shrink: 0;
   }
   .topbar-left b { color: var(--text-pure); font-weight: 800; letter-spacing: 0.03em; }
   .topbar-left .sep { color: rgba(255, 255, 255, 0.2); }
@@ -263,7 +267,9 @@
   .topbar-right {
     display: flex;
     align-items: center;
-    gap: 0.85rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 
   /* Telemetry Status Strip */
@@ -537,12 +543,25 @@
   /* KPI Grid */
   .grid-kpi {
     display: grid;
-    grid-template-columns: 1.5fr repeat(4, 1fr);
+    grid-template-columns: 1.4fr repeat(4, 1fr);
     gap: 0.95rem;
     margin-bottom: 1.25rem;
   }
   @media (max-width: 1250px) { .grid-kpi { grid-template-columns: repeat(3, 1fr); } }
   @media (max-width: 740px) { .grid-kpi { grid-template-columns: 1fr; } }
+
+  /* Tactical 2-Column Grid */
+  .cols-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+    align-items: stretch;
+  }
+  @media (max-width: 1024px) {
+    .cols-2 {
+      grid-template-columns: 1fr;
+    }
+  }
 
   .kpi {
     background: linear-gradient(180deg, rgba(22, 32, 50, 0.7), rgba(13, 20, 32, 0.8));
@@ -590,13 +609,59 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.8);
     aspect-ratio: 16/9;
   }
-  .camera-frame img {
+  .camera-frame img, .camera-frame canvas {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
   }
   .camera-frame.tall { aspect-ratio: 16/10; }
+
+  /* Camera Loading / Health Overlay */
+  .cam-load-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(4, 7, 12, 0.82);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 25;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .cam-load-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .cam-load-overlay > div {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    text-align: center;
+  }
+  .cam-load-label {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    color: var(--neon-cyan);
+    text-transform: uppercase;
+  }
+  .cam-load-overlay .spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(0, 240, 255, 0.2);
+    border-top-color: var(--neon-cyan);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
   
   /* Corner HUD Reticles */
   .camera-frame::before {
@@ -2632,7 +2697,7 @@
   </main>
 </div>
 
-<img id="camera-feed" src="/camera-feed" loading="lazy" alt="SENTINEL local camera feed" style="display:none;">
+<img id="camera-feed" src="/camera-feed" loading="eager" alt="SENTINEL local camera feed" style="display:none;" onload="if(typeof hideCamLoading==='function')hideCamLoading();" onerror="if(typeof hideCamLoading==='function')hideCamLoading();">
 
 <!-- FORENSIC INCIDENT AUDIT DOSSIER MODAL -->
 <div class="modal-overlay" id="forensic-modal" onclick="if(event.target===this)closeForensicModal()">
@@ -4280,6 +4345,11 @@ function _patchRenderWithCameraUX(data) {
   const camHealth = (data.runtime_health && data.runtime_health.camera_health) ||
                     (data.snapshot && data.snapshot.camera_health) || 'UNKNOWN';
 
+  // Always dismiss initial camera loading overlay once runtime health or valid data is rendered
+  if (camHealth === 'LIVE' || data.snapshot || data.runtime_health) {
+    hideCamLoading();
+  }
+
   if (camHealth !== _lastCamHealth) {
     if (camHealth === 'LIVE' && _lastCamHealth && _lastCamHealth !== 'LIVE') {
       toast('success', 'Camera is LIVE', 'Frame delivery restored. Detection and preview are current.');
@@ -4428,7 +4498,7 @@ document.addEventListener('keydown', function(e) {
 
 // Initial overlay and UX boot.
 setTimeout(function () { showCamLoading('CONNECTING TO CAPTURE BACKEND…'); }, 50);
-setTimeout(function () { if (_lastCamHealth !== 'LIVE') hideCamLoading(); }, 6500);
+setTimeout(function () { hideCamLoading(); }, 1500);
 window.addEventListener('load', function () {
   if (!_firstRenderDone) {
     document.querySelectorAll('.reveal').forEach(function (el, i) {
