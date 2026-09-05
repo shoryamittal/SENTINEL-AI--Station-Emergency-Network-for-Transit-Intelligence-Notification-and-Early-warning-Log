@@ -30,7 +30,6 @@ pytest>=8.3.0                   # Unit testing
 
 # Web Deployment
 flask>=3.0.0                    # Flask web framework
-streamlit>=1.38.0                # Streamlit dashboard (app.py)
 
 # Utilities
 tqdm>=4.67.0                    # Progress bars

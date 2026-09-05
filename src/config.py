@@ -7,9 +7,9 @@ from dataclasses import dataclass
 class RuntimeConfig:
     grid_rows: int = 4
     grid_cols: int = 6
-    confidence_threshold: float = 0.5
-    model_path: str = "yolov8n.pt"
-    stale_frame_age_s: float = 2.0
+    confidence_threshold: float = 0.3
+    model_path: str = "yolov8s.pt"
+    stale_frame_age_s: float = 15.0
     camera_failure_timeout_s: float = 5.0
     calibration_samples: int = 12
     baseline_floor: float = 2.0

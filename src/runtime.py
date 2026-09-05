@@ -22,7 +22,7 @@ class SentinelRuntime:
         self.baseline = AdaptiveBaseline(self.config.calibration_samples)
         self.risk = AdaptiveRisk(self.config.baseline_floor, self.config.accumulation_window, self.config.redistribution_window)
         self.scenario = ScenarioEngine(self.config.escalation_confirmations, self.config.deescalation_confirmations, self.config.extreme_occupancy_guardrail)
-        self.health = HealthMonitor(self.config.stale_frame_age_s); self._latest = None; self._lock = Lock(); self._incidents = Queue(); self._stop = Event(); self._thread = None; self._last_key = None
+        self.health = HealthMonitor(self.config.stale_frame_age_s); self._latest = None; self._latest_detections = []; self._lock = Lock(); self._incidents = Queue(); self._stop = Event(); self._thread = None; self._last_key = None
         self._ever_started = False
         self._stopped = False
         self._last_success_at = None
@@ -35,12 +35,14 @@ class SentinelRuntime:
         self._last_sink_attempt_mono = 0.0
         self._incident_sink_failures = 0
     def start(self):
-        if self._thread and self._thread.is_alive(): return
-        self.source.start(); self._stop.clear()
+        if self._thread and self._thread.is_alive(): return True
+        src_ok = self.source.start()
+        self._stop.clear()
         with self._lock:
             self._ever_started = True
             self._stopped = False
         self._thread = Thread(target=self._run, daemon=True); self._thread.start()
+        return bool(src_ok)
     def stop(self):
         self._stop.set()
         if self._thread: self._thread.join(timeout=2)
@@ -65,6 +67,7 @@ class SentinelRuntime:
         self.health.record_risk()
         with self._lock:
             self._latest = snapshot
+            self._latest_detections = detections
             self._last_success_at = snapshot.timestamp_utc
             self._consecutive_failures = 0
         key = (severity, primary, occupancy.hotspot_zone)
@@ -125,6 +128,8 @@ class SentinelRuntime:
             self._pending_incident_key = None
     def get_latest_snapshot(self):
         with self._lock: return self._latest
+    def get_latest_detections(self):
+        with self._lock: return list(self._latest_detections) if self._latest_detections else []
     def get_runtime_health(self):
         """Return serializable worker health without exposing exception detail."""
         with self._lock:

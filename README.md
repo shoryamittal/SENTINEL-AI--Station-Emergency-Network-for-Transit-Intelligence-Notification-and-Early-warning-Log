@@ -125,3 +125,22 @@ The dashboard presents people count, relative occupancy, current risk, a 4×6 zo
 ## Scope and production boundary
 
 The current prototype demonstrates YOLO person detection, relative spatial occupancy, adaptive L/A/R signals, local-first warning, durable recovery, and idempotent store-and-forward synchronization. It does not claim exact people/m², certified thresholds, guaranteed prediction/prevention, full directional counterflow tracking, national-scale deployment, or production IAM/TLS/backend infrastructure. Production use would require operator-controlled infrastructure, station-specific calibration, security controls, retention policy, and formal operational validation.
+
+## Dashboard Features (World-Class Command Center)
+
+| Feature | Description |
+|---|---|
+| **5-Step Guided Judge Pitch Tour** | Scripted demonstration runner (Safe Baseline → Rush Surge → Bottleneck & Crisis → Zero-WAN Outage → Failsafe Sync) for a seamless 2-minute judge pitch |
+| **Quad-Cam CCTV Matrix** | Multi-channel video surveillance (CAM-01 Concourse, CAM-02 Platform 1 YOLO stream, CAM-03 North FOB, CAM-04 Turnstiles) with single/quad layout switch and channel focusing |
+| **Predictive Surge & Time-to-Crush ($T_{crit}$)** | Real-time crowd inflow velocity regression ($\Delta N/\Delta t$) predicting critical chokepoint thresholds minutes before stampede risks develop |
+| **Digital Twin Dynamic Flow Canvas** | HTML5 Canvas particle flow engine rendering 55 micro-vectors over 24 platform zones with dynamically generated green egress routing arrows during high-severity events |
+| **Multilingual Voice & Speech Recognition** | Authentic 3-tone railway chime (F4, A4, C5), English/Hindi text-to-speech public address announcements, and hands-free microphone voice assistant |
+| **Station Marshal (RPF) SLA Checklist** | Real-time emergency response timer enforcing $<90\text{s}$ compliance with timestamped milestone badges |
+| **Forensic Audit Dossier (`/api/incident/report`)** | Official printable compliance certificate sealed with a SHA-256 cryptographic digest (`SEC-WAL-...`) of the SQLite WAL journal |
+| **Railway Platform Layout** | Live SVG top-down station map — 8 tactical zones colored GREEN/YELLOW/RED/BLACK in real-time with interactive zone clearance dossiers |
+| **Alerts & Response** | Per-incident Response SOPs with step-by-step protocols per severity level and one-click ACKNOWLEDGE action |
+| **Density & People Trends** | Real-time Chart.js telemetry graphs of people count + occupancy index over time |
+| **Keyboard Shortcuts** | D=Dashboard, M=Monitoring, P=Platform Layout, S=Simulation, A=Alerts, H=Health, Ctrl+F=Fullscreen |
+| **CSV Export** | Download full incident history as CSV for compliance and reporting |
+| **Security Headers** | X-Content-Type-Options, X-Frame-Options, Referrer-Policy on every response |
+| **/health endpoint** | Uptime monitor / load balancer friendly lightweight health check |
