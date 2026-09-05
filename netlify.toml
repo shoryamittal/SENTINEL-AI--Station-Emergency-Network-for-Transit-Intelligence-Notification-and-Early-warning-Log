@@ -3,6 +3,11 @@
 [build]
   publish = "public"
   functions = "netlify/functions"
+  command = "echo 'Building SENTINEL AI Command Center for Netlify Edge...'"
+
+[build.environment]
+  NODE_VERSION = "20"
+  PIP_DISABLE_PIP_VERSION_CHECK = "1"
 
 [[headers]]
   for = "/*"

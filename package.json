@@ -1,0 +1,8 @@
+{
+  "name": "sentinel-ai-transit-command-center",
+  "version": "2.4.0",
+  "description": "SENTINEL AI: Station Emergency Network for Transit Intelligence Notification and Early-warning Log",
+  "scripts": {
+    "build": "echo 'SENTINEL AI build complete'"
+  }
+}

@@ -1,0 +1,35 @@
+# SENTINEL AI - Railway Crowd Risk and Continuity Prototype
+# Core dependencies
+
+# Computer Vision & AI
+opencv-python>=4.10.0          # OpenCV for image processing
+numpy>=2.3.0                    # Numerical computing
+ultralytics>=8.3.0              # YOLOv8 object detection
+torch>=2.5.0                    # PyTorch deep learning
+torchvision>=0.20.0             # Torch vision models
+
+# Scientific Computing
+scipy>=1.14.0                   # Scientific computing
+scikit-learn>=1.5.0             # ML utilities
+
+# Data Processing
+pandas>=2.3.0                   # Data manipulation
+pillow>=11.0.0                  # Image processing
+
+# Visualization
+matplotlib>=3.10.0              # Plotting library
+
+# Configuration
+configparser>=6.0.0             # Configuration file parsing
+
+# Logging & Debugging
+python-json-logger>=2.0.0       # JSON logging
+
+# Testing
+pytest>=8.3.0                   # Unit testing
+
+# Web Deployment
+flask>=3.0.0                    # Flask web framework
+
+# Utilities
+tqdm>=4.67.0                    # Progress bars
