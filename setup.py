@@ -1,10 +1,16 @@
 from setuptools import setup, find_packages
 
+import os
+
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-with open("requirements.txt", "r", encoding="utf-8") as fh:
-    requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+req_file = "requirements-full.txt" if os.path.exists("requirements-full.txt") else ("requirements.txt" if os.path.exists("requirements.txt") else None)
+if req_path := req_file:
+    with open(req_path, "r", encoding="utf-8") as fh:
+        requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
+else:
+    requirements = []
 
 setup(
     name="preempt-ai",

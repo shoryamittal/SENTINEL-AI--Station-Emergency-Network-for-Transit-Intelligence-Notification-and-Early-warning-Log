@@ -1,6 +1,0 @@
-# SENTINEL AI - Edge / CI Dependencies
-# For full PyTorch, YOLOv8 & Computer Vision local stack, run: pip install -r requirements-full.txt
-flask>=3.0.0
-pytest>=8.3.0
-numpy>=1.24.0
-pillow>=10.0.0
