@@ -609,7 +609,7 @@
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.8);
     aspect-ratio: 16/9;
   }
-  .camera-frame img, .camera-frame canvas {
+  .camera-frame img, .camera-frame canvas, .camera-frame video {
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -2199,7 +2199,7 @@
           <div class="stat"><div class="label">Last Remote Success</div><div class="value" id="last-remote-success" style="font-size:.8rem;">--</div></div>
           <div class="stat"><div class="label">Pending Sync</div><div class="value" id="pending-sync">--</div></div>
         </div>
-        
+        {{DEBUG_CONNECTIVITY_CONTROLS}}
       </div>
 
       <div style="height:1rem"></div>
@@ -2698,6 +2698,7 @@
 </div>
 
 <img id="camera-feed" src="/camera-feed" loading="eager" alt="SENTINEL local camera feed" style="display:none;" onload="if(typeof hideCamLoading==='function')hideCamLoading();" onerror="if(typeof hideCamLoading==='function')hideCamLoading();">
+<video id="simulation-feed" src="/data/demo/crowd_station.mp4" autoplay loop muted playsinline style="display:none;" onplaying="if(typeof hideCamLoading==='function')hideCamLoading();"></video>
 
 <!-- FORENSIC INCIDENT AUDIT DOSSIER MODAL -->
 <div class="modal-overlay" id="forensic-modal" onclick="if(event.target===this)closeForensicModal()">
@@ -3385,10 +3386,21 @@ let activeView = 'dashboard';
 
 function moveCameraFeed(view) {
   const img = document.getElementById('camera-feed');
+  const vid = document.getElementById('simulation-feed');
   const target = document.getElementById('camera-slot-' + view);
-  if (!img || !target) return;
-  target.insertBefore(img, target.firstChild ? target.firstChild.nextSibling : null);
-  img.style.display = 'block';
+  if (!target) return;
+  if (img) {
+    target.insertBefore(img, target.firstChild ? target.firstChild.nextSibling : null);
+  }
+  if (vid) {
+    target.insertBefore(vid, target.firstChild ? target.firstChild.nextSibling : null);
+  }
+  const isSim = (document.getElementById('mode-btn-simulation') && document.getElementById('mode-btn-simulation').classList.contains('active')) || view === 'simulation';
+  if (img) img.style.display = isSim && vid ? 'none' : 'block';
+  if (vid) {
+    vid.style.display = isSim ? 'block' : 'none';
+    if (isSim && vid.paused) { vid.play().catch(function() {}); }
+  }
 }
 
 function switchView(view) {
@@ -3570,6 +3582,15 @@ function renderOperatingMode(data) {
     setText('sim-loop-badge', looping ? ('LOOP: ON (cycle ' + (data.simulation_loop_count + 1) + ')') : 'LOOP: ON');
   }
   if (!isSim) setText('simulation-upload-status', '');
+
+  const img = document.getElementById('camera-feed');
+  const vid = document.getElementById('simulation-feed');
+  if (img) img.style.display = isSim && vid ? 'none' : 'block';
+  if (vid) {
+    vid.style.display = isSim ? 'block' : 'none';
+    if (isSim && vid.paused) { vid.play().catch(function() {}); }
+    else if (!isSim && !vid.paused) { vid.pause(); }
+  }
 }
 
 
@@ -4391,7 +4412,22 @@ const _origSetOperatingMode = setOperatingMode;
 setOperatingMode = function (mode) {
   toast('info', `Switching to ${mode}`, 'Restarting the SENTINEL pipeline with the new frame source.');
   showCamLoading(mode === 'SIMULATION' ? 'LOADING SCENARIO VIDEO…' : 'SWITCHING TO LIVE CAMERA…');
-  setTimeout(hideCamLoading, 3200);
+  const img = document.getElementById('camera-feed');
+  const vid = document.getElementById('simulation-feed');
+  if (mode === 'SIMULATION') {
+    if (img) img.style.display = 'none';
+    if (vid) {
+      vid.style.display = 'block';
+      if (vid.paused) vid.play().catch(function() {});
+    }
+  } else {
+    if (vid) {
+      vid.style.display = 'none';
+      if (!vid.paused) vid.pause();
+    }
+    if (img) img.style.display = 'block';
+  }
+  setTimeout(hideCamLoading, 1200);
   return _origSetOperatingMode.apply(this, arguments);
 };
 
