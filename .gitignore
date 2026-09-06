@@ -160,3 +160,7 @@ data/*.db-shm
 *.mkv
 !data/demo/crowd_station.mp4
 !public/data/demo/crowd_station.mp4
+
+# Token Savior cache
+.token-savior-cache.json
+
