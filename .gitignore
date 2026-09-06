@@ -159,3 +159,4 @@ data/*.db-shm
 *.flv
 *.mkv
 !data/demo/crowd_station.mp4
+!public/data/demo/crowd_station.mp4
