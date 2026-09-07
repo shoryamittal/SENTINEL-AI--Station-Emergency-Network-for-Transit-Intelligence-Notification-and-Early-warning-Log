@@ -84,6 +84,11 @@ pytest -q tests
 python deploy.py
 ```
 
+**⚠️ EVALUATOR / JUDGE LOGIN ⚠️**
+To access the local web dashboard, use the following default credentials:
+- **Username:** `admin`
+- **Password:** `sentinel2026`
+
 Open [http://localhost:5000](http://localhost:5000). Use **REALITY** for the configured camera, or **SIMULATION** for the bundled scenario video (with upload as an alternative). Simulation does not use fake risk output: both modes use the same `SentinelRuntime`, YOLO detector, grid, baseline, L/A/R, scenario, and severity logic; only the frame source changes.
 
 For the optional localhost qualification backend:
