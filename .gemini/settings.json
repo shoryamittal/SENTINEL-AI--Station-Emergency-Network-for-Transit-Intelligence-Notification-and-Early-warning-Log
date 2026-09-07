@@ -1,0 +1,71 @@
+{
+  "hooks": {
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command|read_file|read_many_files|grep_search|search_file_content|web_fetch|mcp__plugin_token-savior",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\python.exe -m token_savior.hooks.tool_capture_hook",
+            "timeout": 5000
+          }
+        ]
+      },
+      {
+        "matcher": "run_shell_command|web_fetch|google_web_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\token_savior\\hooks/memory-posttooluse.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\token_savior\\hooks/memory-session-start.sh",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "BeforeTool": [
+      {
+        "matcher": "mcp__plugin_token-saviorget_function_source|mcp__plugin_token-saviorget_class_source|mcp__plugin_token-saviorget_edit_context|mcp__plugin_token-saviorfind_symbol|mcp__plugin_token-saviorget_file_dependencies|mcp__plugin_token-saviorreplace_symbol_source|mcp__plugin_token-saviorinsert_near_symbol|mcp__plugin_token-saviorapply_symbol_change_and_validate|mcp__plugin_token-saviorapply_symbol_change_validate_with_rollback|run_shell_command|replace|write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\token_savior\\hooks/memory-pretooluse.sh",
+            "timeout": 2000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\token_savior\\hooks/memory-session-stop.sh stop",
+            "timeout": 120000
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash C:\\Users\\SHORYA MITTAL\\AppData\\Local\\Programs\\Python\\Python313\\Lib\\site-packages\\token_savior\\hooks/memory-session-stop.sh end",
+            "timeout": 120000
+          }
+        ]
+      }
+    ]
+  }
+}

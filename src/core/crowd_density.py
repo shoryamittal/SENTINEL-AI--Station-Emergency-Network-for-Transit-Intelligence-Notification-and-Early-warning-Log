@@ -1,4 +1,5 @@
 """YOLO-based person detection with lightweight bbox tracking + speed/flow estimation."""
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 from __future__ import annotations
 
 from collections import deque

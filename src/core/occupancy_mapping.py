@@ -1,6 +1,7 @@
 """Maps person detections onto a spatial grid and computes density statistics
 and an extremely cheap GPU-friendly heatmap overlay (cv2.resize + applyColorMap).
 """
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 from __future__ import annotations
 
 from collections import deque

@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  sentinel-ai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sentinel-ai:latest
+    container_name: sentinel-ai-app
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - STATION_NAME=NewDelhi
+      - STATION_CODE=NDLS
+    restart: unless-stopped

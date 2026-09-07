@@ -69,8 +69,8 @@ class RailwayIntegration:
                         ["on_time", "delayed", "boarding"],
                         p=[0.55, 0.2, 0.25],
                     ),
-                    passenger_load=float(np.clip(load + np.random.uniform(-0.15, 0.2), 0.1, 1.0)),
-                    cars=int(np.random.choice([8, 9, 10, 12], p=[0.4, 0.25, 0.2, 0.15])),
+                    passenger_load=float(np.clip(load + np.random.uniform(-0.15, 0.2), 0.1, 3.0)),
+                    cars=int(np.random.choice([12, 15, 16, 20, 22, 24])),
                 )
             )
 
@@ -98,12 +98,17 @@ class RailwayIntegration:
     def is_ready(self) -> bool:
         return self._data_loaded
 
+    def _refresh_if_stale(self) -> None:
+        if self.schedules and all(s.scheduled_departure < time.time() for s in self.schedules):
+            self.load_sample_data()
+
     def upcoming_trains(
         self,
         within_minutes: float = 15.0,
         now_ts: Optional[float] = None,
     ) -> list[TrainSchedule]:
         """Return trains scheduled to depart within the next N minutes."""
+        self._refresh_if_stale()
         now = now_ts if now_ts is not None else time.time()
         cutoff = now + within_minutes * 60
         return [s for s in self.schedules if now <= s.scheduled_departure <= cutoff]
@@ -119,6 +124,7 @@ class RailwayIntegration:
 
         >=1.2 implies an incoming crowd-risk window from boarding/delayed trains.
         """
+        self._refresh_if_stale()
         trains = self.upcoming_trains(within_minutes=within_minutes)
         if not trains:
             return 1.0

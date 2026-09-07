@@ -13,13 +13,13 @@ else:
     requirements = []
 
 setup(
-    name="preempt-ai",
+    name="sentinel-ai",
     version="1.0.0",
     author="PREEMPT AI Team",
-    description="Real-time crowd monitoring system for platform change events",
+    description="SENTINEL-AI: Station Emergency Network for Transit Intelligence, Notification, and Early-warning Log - Real-time AI crowd safety monitoring for Indian Railways",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/preempt-ai/platform-change-detection",
+    url="https://github.com/shoryamittal/SENTINEL-AI--Station-Emergency-Network-for-Transit-Intelligence-Notification-and-Early-warning-Log",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 4 - Beta",
@@ -38,7 +38,7 @@ setup(
     install_requires=requirements,
     entry_points={
         "console_scripts": [
-            "preempt-ai=main:main",
+            "sentinel-ai=main:main",
         ],
     },
     include_package_data=True,

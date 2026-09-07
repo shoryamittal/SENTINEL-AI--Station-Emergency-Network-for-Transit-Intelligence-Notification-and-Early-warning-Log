@@ -96,6 +96,7 @@ def test_dashboard_defaults_to_local_bind_and_debug_endpoint_disabled(monkeypatc
     import deploy
 
     assert deploy.SENTINEL_BIND_HOST == "127.0.0.1"
+    monkeypatch.setattr(deploy, "AUTH_ENABLED", False)
     client = deploy.app.test_client()
     assert client.post("/debug/connectivity?state=OFFLINE").status_code == 404
     assert "Simulate OFFLINE" not in client.get("/").get_data(as_text=True)

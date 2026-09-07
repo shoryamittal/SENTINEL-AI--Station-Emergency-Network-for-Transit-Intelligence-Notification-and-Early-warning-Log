@@ -1,4 +1,5 @@
 """Logs and tracks the response actions recommended for a given situation."""
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 from __future__ import annotations
 
 import logging

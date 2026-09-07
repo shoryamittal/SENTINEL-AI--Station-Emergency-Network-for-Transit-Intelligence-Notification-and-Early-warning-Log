@@ -1,7 +1,6 @@
 """Grid-based crowd flow simulation and shortest-path routing."""
 from __future__ import annotations
 
-import heapq
 import random
 from dataclasses import dataclass, field
 from typing import Optional
@@ -92,33 +91,38 @@ class FlowSimulator:
         if start == end:
             return [start]
 
-        visited = {start}
+        distances = {start: 0.0}
         parents: dict[tuple[int, int], tuple[int, int]] = {}
-        queue = [start]
-        head = 0
-        found = False
+        queue = [(0.0, start)]
+        visited = set()
 
-        while head < len(queue):
-            cur = queue[head]
-            head += 1
+        while queue:
+            queue.sort(key=lambda x: x[0])
+            dist, cur = queue.pop(0)
+            if cur in visited:
+                continue
+            visited.add(cur)
+
+            if cur == end:
+                break
+
             r, c = cur
             for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
                 nr, nc = r + dr, c + dc
                 nxt = (nr, nc)
-                if not self._in_bounds(nr, nc) or nxt in visited:
+                if not self._in_bounds(nr, nc):
                     continue
                 cell = self.grid[nr][nc]
                 if cell.overload > 0 and nxt != end:
                     continue
-                visited.add(nxt)
-                parents[nxt] = cur
-                if nxt == end:
-                    found = True
-                    queue.append(nxt)
-                    break
-                queue.append(nxt)
-            if found:
-                break
+
+                cost = 1.0 + cell.density
+                new_dist = dist + cost
+
+                if new_dist < distances.get(nxt, float('inf')):
+                    distances[nxt] = new_dist
+                    parents[nxt] = cur
+                    queue.append((new_dist, nxt))
 
         if end not in parents:
             return []

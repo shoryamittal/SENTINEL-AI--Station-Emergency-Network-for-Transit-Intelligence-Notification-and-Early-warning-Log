@@ -2,7 +2,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Local font stack — air-gap safe. No CDN dependency. */
+  @font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 600 700 800; src: local('Inter'), local('Segoe UI'), local('system-ui'); }
+  @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 700 800; src: local('JetBrains Mono'), local('Cascadia Code'), local('Consolas'); }
+</style>
 
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,7 +14,7 @@
 <style>
 
   :root {
-    /* Market Dominator Tactical Aerospace Theme */
+    /* SENTINEL-AI Enterprise Operations Console Theme */
     --bg-void: #04070c;
     --bg-base: #070b12;
     --bg-surface: #0c121e;
@@ -51,7 +55,7 @@
     --text-pure: #ffffff;
     --text-primary: #f1f5f9;
     --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-muted: #8b9cb8;
     --text: var(--text-primary);
     --muted: var(--text-secondary);
     --muted-2: var(--text-muted);
@@ -93,13 +97,13 @@
   .shell {
     display: grid;
     grid-template-columns: 245px 1fr;
-    grid-template-rows: 64px 1fr;
+    grid-template-rows: minmax(56px, auto) 1fr;
     grid-template-areas: "side top" "side main";
     min-height: 100vh;
   }
   @media (max-width: 980px) {
     .shell { grid-template-columns: 72px 1fr; }
-    .nav-label, .brand-text-wrap, .brand-sub { display: none; }
+    .nav-label, .brand-title-wrap, .brand-sub { display: none; }
   }
 
   /* Sidebar */
@@ -1439,7 +1443,12 @@
       color: black !important;
     }
     .modal-header, .modal-footer-btns { display: none !important; }
-  /* Indian Railways Enterprise SaaS Styling */
+  }
+
+  /* ===================================================================
+     Indian Railways Enterprise SaaS Styling
+     (Previously trapped inside @media print — now correctly screen-visible)
+     =================================================================== */
   .ir-emblem-badge {
     display: inline-flex;
     align-items: center;
@@ -1651,14 +1660,14 @@
   }
 </style>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/js/chart.min.js"></script>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
 </head>
 <body>
 <div class="toast-stack" id="toast-stack"></div>
 <div class="shell">
 
-  <nav class="sidebar">
+  <nav class="sidebar" role="navigation" aria-label="Operations Navigation">
     <div class="brand">
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 2 L21 6 V12 C21 17 17 20.5 12 22 C7 20.5 3 17 3 12 V6 Z" stroke="#22d3ee" stroke-width="1.6" fill="rgba(34,211,238,.06)"/><path d="M6.5 12.5 H9.2 L10.4 9.5 L12.2 15.5 L13.4 12.5 H17.5" stroke="#22d3ee" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div><div class="brand-title-wrap"><div class="brand-name">SENTINEL AI</div><div class="brand-sub" id="brand-station">Transit Operations Console</div></div></div>
@@ -1702,9 +1711,9 @@
     <div class="nav-foot">SENTINEL AI &middot; Indian Railways SaaS</div>
   </nav>
 
-  <header class="topbar">
+  <header class="topbar" role="banner">
     <div class="topbar-left">
-      <span class="ir-emblem-badge"><span style="font-size:0.9rem;">🇮🇳</span> INDIAN RAILWAYS · CRIS</span>
+      <span class="ir-emblem-badge"><span style="font-size:0.7rem;font-weight:800;letter-spacing:0.03em;">भारत सरकार</span> · <span style="font-weight:700;">INDIAN RAILWAYS</span> · <span style="opacity:0.7;">रेल मंत्रालय / Ministry of Railways</span></span>
       <div class="station-fleet-selector">
         <span style="font-size:0.65rem;color:var(--text-muted);font-weight:800;">HUB:</span>
         <select class="station-fleet-select" id="station-fleet-select" onchange="switchStationHub(this.value)">
@@ -1741,28 +1750,29 @@
         <button class="mode-btn" id="mode-btn-simulation" onclick="setOperatingMode('SIMULATION')">SIMULATION</button>
       </div>
       <span id="conn-badge" class="badge badge-ONLINE">CONNECTIVITY: --</span>
+      <button class="mode-btn" id="lang-toggle-btn" onclick="toggleLanguage()" title="भाषा बदलें / Switch Language" style="margin-left:6px;font-weight:700;letter-spacing:0.03em;">हिं / EN</button>
     </div>
   </header>
 
-  <main class="main">
+  <main class="main" role="main">
 
     <!-- ============================================================
          DASHBOARD -- the judge-first view. KPI strip, camera + crowd
          intelligence summary, dynamics + system health + incidents.
     =============================================================== -->
     <section class="view active" id="view-dashboard">
-      <div class="banner" id="stale-banner-dashboard">INPUT STALE</div>
+      <div class="banner" id="stale-banner-dashboard" role="alert" aria-live="assertive">INPUT STALE</div>
 
-      <!-- JUDGE GUIDED TOUR BAR (3-MINUTE HACKATHON WINNER PITCH) -->
+      <!-- OPERATIONS SCENARIO DEMONSTRATOR -->
       <div class="judge-guided-tour-bar">
-        <div class="jgt-badge"><span class="pulse-dot"></span> 3-MIN JUDGE PITCH TOUR:</div>
+        <div class="jgt-badge"><span class="pulse-dot"></span> SCENARIO DEMONSTRATOR:</div>
         <div class="jgt-steps">
-          <button class="jgt-btn active" id="jgt-step-1" onclick="runJudgeTourStep(1)" title="Step 1: Normal baseline operations with YOLO detection">1. Safe Baseline (Green)</button>
-          <button class="jgt-btn jgt-warn" id="jgt-step-2" onclick="runJudgeTourStep(2)" title="Step 2: Train arrival surge (+45% accumulation)">2. Rush Surge (+45%)</button>
-          <button class="jgt-btn jgt-red" id="jgt-step-3" onclick="runJudgeTourStep(3)" title="Step 3: Chokepoint bottleneck with emergency alarm and green evacuation vectors">3. Chokepoint Crisis (Red)</button>
-          <button class="jgt-btn jgt-warn" id="jgt-step-4" onclick="runJudgeTourStep(4)" title="Step 4: WAN cut - Safety plane continues zero packet drop in SQLite">4. Zero-WAN Outage</button>
-          <button class="jgt-btn jgt-cyan" id="jgt-step-5" onclick="runJudgeTourStep(5)" title="Step 5: WAN restored - Idempotent background sync with 0 duplicates">5. Failsafe Sync</button>
-          <button class="jgt-btn jgt-reset" onclick="runJudgeTourStep(0)" title="Return to raw live hardware feed">Live Camera Feed</button>
+          <button class="jgt-btn active" id="jgt-step-1" onclick="runJudgeTourStep(1)" title="Step 1: Normal baseline operations with YOLO detection">1. Normal Operations</button>
+          <button class="jgt-btn jgt-warn" id="jgt-step-2" onclick="runJudgeTourStep(2)" title="Step 2: Train arrival surge (+45% accumulation)">2. Arrival Surge</button>
+          <button class="jgt-btn jgt-red" id="jgt-step-3" onclick="runJudgeTourStep(3)" title="Step 3: Chokepoint bottleneck with emergency alarm and evacuation vectors">3. Emergency Response</button>
+          <button class="jgt-btn jgt-warn" id="jgt-step-4" onclick="runJudgeTourStep(4)" title="Step 4: WAN cut - Safety plane continues zero packet drop in SQLite">4. Network Outage</button>
+          <button class="jgt-btn jgt-cyan" id="jgt-step-5" onclick="runJudgeTourStep(5)" title="Step 5: WAN restored - Idempotent background sync with 0 duplicates">5. Auto-Recovery</button>
+          <button class="jgt-btn jgt-reset" onclick="runJudgeTourStep(0)" title="Return to live hardware feed">Live Feed</button>
         </div>
       </div>
 
@@ -3374,11 +3384,17 @@ function triggerPABroadcast() {
   const snap = _currentRenderSnap || {};
   const hotspot = formatHotspotName(snap.hotspot || 'r0c2');
   const sev = snap.severity || 'RED';
-  let message = `Attention passengers. Crowd density near ${hotspot} is elevated. Please proceed toward open corridors and follow station marshals.`;
+  /* Indian Railways trilingual broadcast: Hindi → English (Regional → Hindi → English standard) */
+  let hindiMsg, engMsg;
   if (sev === 'BLACK' || sev === 'RED') {
-    message = `Emergency directive. Severe crowd density detected at ${hotspot}. Inbound flow is restricted. Divert immediately toward Foot Over Bridge Exit Gate 5 and Concourse.`;
+    hindiMsg = `आपातकालीन सूचना। ${hotspot} क्षेत्र में अत्यधिक भीड़ का पता चला है। कृपया तुरंत फुट ओवर ब्रिज निकास द्वार की ओर बढ़ें। RPF दल तैनात किया जा रहा है।`;
+    engMsg = `Emergency directive. Severe crowd density detected at ${hotspot}. Inbound flow is restricted. Proceed immediately toward Foot Over Bridge Exit Gate. RPF response team being deployed.`;
+  } else {
+    hindiMsg = `ध्यान दें यात्रीगण। ${hotspot} क्षेत्र में भीड़ बढ़ रही है। कृपया खुले गलियारों की ओर बढ़ें और स्टेशन मार्शलों के निर्देशों का पालन करें।`;
+    engMsg = `Attention passengers. Crowd density near ${hotspot} is elevated. Please proceed toward open corridors and follow station marshal directives.`;
   }
-  broadcastPA(message, 'en');
+  broadcastPA(hindiMsg, 'hi');
+  setTimeout(function() { broadcastPA(engMsg, 'en'); }, 4500);
 }
 
 function broadcastZonePA() {
@@ -5331,6 +5347,76 @@ updateClock();
 
 setTimeout(initStationFlowCanvas, 200);
 pollLoop();
+
+// ================================================================
+// HINDI / ENGLISH LANGUAGE TOGGLE (राजभाषा COMPLIANCE)
+// Indian Railways requires trilingual support per GIGW guidelines
+// ================================================================
+var _currentLang = 'en';
+var _i18n = {
+  'Dashboard':       { hi: 'डैशबोर्ड' },
+  'Live Monitoring': { hi: 'लाइव निगरानी' },
+  'Platform Layout': { hi: 'प्लेटफ़ॉर्म लेआउट' },
+  'Simulation':      { hi: 'सिमुलेशन' },
+  'Alerts & Response': { hi: 'अलर्ट और प्रतिक्रिया' },
+  'System Health':   { hi: 'सिस्टम स्वास्थ्य' },
+  'NLP Intelligence': { hi: 'NLP इंटेलिजेंस' },
+  'Enterprise SLA':  { hi: 'एंटरप्राइज़ SLA' },
+  'Camera':          { hi: 'कैमरा' },
+  'AI':              { hi: 'AI' },
+  'WAN':             { hi: 'WAN' },
+  'Sync':            { hi: 'सिंक' },
+  'AUDIT DOSSIER':   { hi: 'ऑडिट दस्तावेज़' },
+  'EXPORT CSV':      { hi: 'CSV निर्यात' },
+  'FULL SCREEN':     { hi: 'पूर्ण स्क्रीन' },
+  'REALITY':         { hi: 'वास्तविक' },
+  'SIMULATION':      { hi: 'सिमुलेशन' },
+  'INPUT STALE':     { hi: 'इनपुट पुराना' },
+  'People Detected': { hi: 'व्यक्ति पहचाने गए' },
+  'Threat Level':    { hi: 'खतरा स्तर' },
+  'Density Index':   { hi: 'घनत्व सूचकांक' },
+  'Transit Operations Console': { hi: 'ट्रांज़िट ऑपरेशन्स कंसोल' },
+};
+
+function toggleLanguage() {
+  _currentLang = (_currentLang === 'en') ? 'hi' : 'en';
+  var btn = document.getElementById('lang-toggle-btn');
+  if (btn) btn.textContent = (_currentLang === 'hi') ? 'EN / हिं' : 'हिं / EN';
+  /* Update sidebar nav labels */
+  var labels = document.querySelectorAll('.nav-label');
+  labels.forEach(function(el) {
+    var enText = el.getAttribute('data-en') || el.textContent.trim();
+    if (!el.getAttribute('data-en')) el.setAttribute('data-en', enText);
+    if (_currentLang === 'hi' && _i18n[enText]) {
+      el.textContent = _i18n[enText].hi;
+    } else if (el.getAttribute('data-en')) {
+      el.textContent = el.getAttribute('data-en');
+    }
+  });
+  /* Update status strip labels */
+  document.querySelectorAll('.status-chip .k').forEach(function(el) {
+    var enText = el.getAttribute('data-en') || el.textContent.trim();
+    if (!el.getAttribute('data-en')) el.setAttribute('data-en', enText);
+    if (_currentLang === 'hi' && _i18n[enText]) {
+      el.textContent = _i18n[enText].hi;
+    } else if (el.getAttribute('data-en')) {
+      el.textContent = el.getAttribute('data-en');
+    }
+  });
+  /* Update brand subtitle */
+  var brandSub = document.getElementById('brand-station');
+  if (brandSub) {
+    var enBrand = brandSub.getAttribute('data-en') || brandSub.textContent.trim();
+    if (!brandSub.getAttribute('data-en')) brandSub.setAttribute('data-en', enBrand);
+    if (_currentLang === 'hi' && _i18n[enBrand]) {
+      brandSub.textContent = _i18n[enBrand].hi;
+    } else if (brandSub.getAttribute('data-en')) {
+      brandSub.textContent = brandSub.getAttribute('data-en');
+    }
+  }
+  toast('info', (_currentLang === 'hi') ? 'भाषा' : 'Language',
+    (_currentLang === 'hi') ? 'इंटरफ़ेस हिंदी में बदल दिया गया' : 'Interface switched to English');
+}
 </script>
 </body>
 </html>

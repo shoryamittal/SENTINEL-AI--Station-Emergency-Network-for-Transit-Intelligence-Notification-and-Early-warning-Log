@@ -1,4 +1,5 @@
 """Classifies crowd density into GREEN / YELLOW / RED / BLACK zones."""
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 
 
 class SituationClassifier:

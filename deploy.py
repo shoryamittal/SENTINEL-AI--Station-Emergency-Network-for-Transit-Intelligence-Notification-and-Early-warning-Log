@@ -59,8 +59,11 @@ from src.sync import HttpSyncAdapter, MockSyncAdapter, SyncWorker
 from src.core.railway_integration import RailwayIntegration
 from src.core.flow_simulation import FlowSimulator
 
-app = Flask(__name__)
+import signal
+
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 app.logger.setLevel(logging.INFO)
+app.secret_key = os.environ.get("SENTINEL_SECRET_KEY", "sentinel-ai-default-key-change-in-production")
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200 MB upload limit
 
 _railway_core = RailwayIntegration(os.environ.get("STATION_CODE", "NDLS"))
@@ -77,6 +80,72 @@ def add_cache_control(response):
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response
+
+
+# ----------------------------------------------------------------------
+# Authentication (session-based, env-driven credentials)
+# ----------------------------------------------------------------------
+from functools import wraps
+from flask import session, redirect, url_for, render_template_string
+
+ADMIN_USER = os.environ.get("SENTINEL_ADMIN_USER", "admin")
+ADMIN_PASS = os.environ.get("SENTINEL_ADMIN_PASS", "sentinel2026")
+AUTH_ENABLED = os.environ.get("SENTINEL_AUTH_ENABLED", "true").lower() == "true"
+
+_LOGIN_HTML = """<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SENTINEL AI — Login</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#04070c;background-image:radial-gradient(ellipse 80% 50% at 50% -10%,rgba(0,240,255,.08),transparent 70%);
+font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#f1f5f9}
+.login-card{background:rgba(15,23,38,.85);border:1px solid rgba(255,255,255,.09);border-radius:16px;padding:48px 40px;width:380px;
+backdrop-filter:blur(24px);box-shadow:0 24px 80px rgba(0,0,0,.5)}
+.login-card h1{font-size:1.5rem;font-weight:800;margin-bottom:6px;background:linear-gradient(135deg,#00f0ff,#00ff88);
+-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.login-card p{font-size:.78rem;color:#94a3b8;margin-bottom:28px}
+.login-card label{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#8b9cb8;margin-bottom:6px}
+.login-card input{width:100%;padding:10px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:8px;
+color:#f1f5f9;font-size:.88rem;margin-bottom:18px;outline:none;transition:border .2s}
+.login-card input:focus{border-color:#00f0ff}
+.login-card button{width:100%;padding:12px;background:linear-gradient(135deg,#00f0ff,#00cc77);color:#04070c;font-weight:800;
+font-size:.85rem;border:none;border-radius:8px;cursor:pointer;letter-spacing:.04em;transition:transform .15s,box-shadow .15s}
+.login-card button:hover{transform:translateY(-1px);box-shadow:0 8px 30px rgba(0,240,255,.25)}
+.err{color:#ff4466;font-size:.78rem;margin-bottom:14px;text-align:center}
+.brand-line{text-align:center;margin-bottom:28px;font-size:.68rem;color:#8b9cb8}
+</style></head><body><form class="login-card" method="POST" action="/login">
+<h1>SENTINEL AI</h1><p>भारत सरकार · Indian Railways · Station Operations Console</p>
+<div class="brand-line">Authorized Personnel Only · अधिकृत कर्मचारी केवल</div>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<label for="username">Username / उपयोगकर्ता नाम</label><input id="username" name="username" type="text" required autofocus placeholder="Enter username">
+<label for="password">Password / पासवर्ड</label><input id="password" name="password" type="password" required placeholder="Enter password">
+<button type="submit">LOGIN · लॉगिन</button></form></body></html>"""
+
+
+def login_required(f):
+    """Decorator: redirect unauthenticated requests to the login page."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if AUTH_ENABLED and not session.get("authenticated"):
+            return redirect(url_for("login_page"))
+        return f(*args, **kwargs)
+    return decorated
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if not AUTH_ENABLED:
+        return redirect("/")
+    if request.method == "POST":
+        if request.form.get("username") == ADMIN_USER and request.form.get("password") == ADMIN_PASS:
+            session["authenticated"] = True
+            session["user"] = request.form.get("username")
+            return redirect("/")
+        return render_template_string(_LOGIN_HTML, error="Invalid credentials · अमान्य साख"), 401
+    return render_template_string(_LOGIN_HTML, error=None)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login_page"))
 
 
 # ----------------------------------------------------------------------
@@ -228,7 +297,7 @@ _shared_detector = _LockedDetector(PersonDetector(runtime_config.model_path, run
 # with NameError.
 # ----------------------------------------------------------------------
 UPLOAD_DIR = Path("data") / "uploads"
-MAX_UPLOAD_BYTES = 500 * 1024 * 1024  # 500 MB, generous for a short demo clip
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB, matches app limit
 _ALLOWED_VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv"}
 
 DEFAULT_SIMULATION_VIDEO = Path("data") / "demo" / "crowd_station.mp4"
@@ -329,7 +398,8 @@ def switch_to_reality(settings: dict | None = None) -> tuple[bool, str | None]:
     global _simulation_loop_count
     result = _switch_active_runtime(_source_mode, _source_value, "REALITY", settings)
     if result[0]:
-        _simulation_loop_count = 0
+        with _runtime_lock:
+            _simulation_loop_count = 0
     return result
 
 
@@ -337,10 +407,11 @@ def switch_to_simulation(video_path: str, label: str | None = None, *, _looping:
     global _simulation_source_name, _simulation_source_label, _simulation_source_path, _simulation_loop_count
     result = _switch_active_runtime(SourceMode.VIDEO, video_path, "SIMULATION")
     if result[0]:
-        _simulation_source_name = Path(video_path).name
-        _simulation_source_label = label or _simulation_source_name
-        _simulation_source_path = video_path
-        _simulation_loop_count = _simulation_loop_count + 1 if _looping else 0
+        with _runtime_lock:
+            _simulation_source_name = Path(video_path).name
+            _simulation_source_label = label or _simulation_source_name
+            _simulation_source_path = video_path
+            _simulation_loop_count = _simulation_loop_count + 1 if _looping else 0
     return result
 
 
@@ -360,6 +431,18 @@ def _candidate_is_current(candidate) -> bool:
     )
 
 
+def _safe_source_mode(val):
+    """Reconstruct SourceMode from either string enum value or legacy int."""
+    if val is None:
+        return None
+    try:
+        return SourceMode(val)
+    except (ValueError, KeyError):
+        # Legacy DB records may store integer indices; fall back gracefully
+        _sm_by_idx = {0: SourceMode.CAMERA, 1: SourceMode.VIDEO, 2: SourceMode.SIMULATION}
+        return _sm_by_idx.get(val, None)
+
+
 def _candidate_from_record(record) -> IncidentCandidate:
     """Rebuild a contract candidate from its immutable persisted payload."""
     payload = record.payload
@@ -376,7 +459,8 @@ def _candidate_from_record(record) -> IncidentCandidate:
         recommended_action=payload["recommended_action"],
         action_code=payload["action_code"],
         model_version=payload["model_version"],
-        source_mode=SourceMode(payload["source_mode"]) if payload.get("source_mode") else None,
+        people_count=payload.get("people_count", 0),
+        source_mode=_safe_source_mode(payload.get("source_mode")),
         frame_id=payload.get("frame_id"),
     )
 
@@ -521,6 +605,7 @@ with open(os.path.join(os.path.dirname(__file__), "templates", "index.html"), "r
 
 
 @app.route("/")
+@login_required
 def index():
     controls = """
       <div class="debug-controls">
@@ -767,6 +852,7 @@ def cctv_feed(cam_id: int):
 
 
 @app.route("/api/export_csv")
+@login_required
 def export_csv():
     """Download a CSV report of all recent incidents for compliance and auditing."""
     events = journal.get_recent_events(1000)
@@ -942,13 +1028,18 @@ def api_get_trains():
 def api_evacuation_routes():
     """Compute optimal dynamic passenger egress routes avoiding crowded hotspots using BFS."""
     snap = runtime.get_latest_snapshot()
+    if snap and snap.occupancy_grid:
+        for r_idx, row in enumerate(snap.occupancy_grid):
+            for c_idx, val in enumerate(row):
+                _flow_sim.set_density(r_idx, c_idx, val)
     start = (1, 2)  # default concourse center
     if snap and snap.hotspot and snap.hotspot != "ALL_CLEAR":
         try:
-            parts = snap.hotspot.split("_")
-            r = int(parts[0].replace("R", "").replace("ZONE", "1"))
-            c = int(parts[1].replace("C", "1"))
-            start = (max(0, min(3, r)), max(0, min(5, c)))
+            m = re.match(r'r(\d+)c(\d+)', snap.hotspot)
+            if m:
+                r = int(m.group(1))
+                c = int(m.group(2))
+                start = (max(0, min(3, r)), max(0, min(5, c)))
         except Exception:
             pass
     exits = [(0, 0), (0, 5), (3, 0), (3, 5)]  # Concourse and FOB emergency exits
@@ -967,6 +1058,7 @@ def api_evacuation_routes():
 
 
 @app.route("/api/rpf/dispatch", methods=["POST"])
+@login_required
 def api_rpf_dispatch():
     """Execute tactical RPF barrier / marshal dispatch command."""
     import uuid
@@ -1233,6 +1325,8 @@ def api_upload_simulation_video():
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     safe_name = secure_filename(file.filename)
+    if not safe_name:
+        return jsonify({"success": False, "error": "invalid filename"}), 400
     dest = UPLOAD_DIR / safe_name
     file.save(dest)
     if dest.stat().st_size == 0 or dest.stat().st_size > MAX_UPLOAD_BYTES:
@@ -1623,6 +1717,11 @@ if __name__ == "__main__":
     extra_threads = [Thread(target=server.serve_forever, daemon=True) for server in servers[1:]]
     for thread in extra_threads:
         thread.start()
+
+    import signal
+    def handle_sigterm(signum, frame):
+        raise KeyboardInterrupt()
+    signal.signal(signal.SIGTERM, handle_sigterm)
 
     try:
         servers[0].serve_forever()

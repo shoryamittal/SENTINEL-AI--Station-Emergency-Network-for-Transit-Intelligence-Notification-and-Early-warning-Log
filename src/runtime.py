@@ -16,13 +16,21 @@ from .scenario import ScenarioEngine
 
 class SentinelRuntime:
     def __init__(self, source: FrameSource, detector=None, config: RuntimeConfig | None = None, incident_sink=None):
-        self.config = config or RuntimeConfig(); self.source = source
+        self.config = config or RuntimeConfig()
+        self.source = source
         self.detector = detector or PersonDetector(self.config.model_path, self.config.confidence_threshold)
         self.occupancy = OccupancyGrid(self.config.grid_rows, self.config.grid_cols)
         self.baseline = AdaptiveBaseline(self.config.calibration_samples)
         self.risk = AdaptiveRisk(self.config.baseline_floor, self.config.accumulation_window, self.config.redistribution_window)
         self.scenario = ScenarioEngine(self.config.escalation_confirmations, self.config.deescalation_confirmations, self.config.extreme_occupancy_guardrail)
-        self.health = HealthMonitor(self.config.stale_frame_age_s); self._latest = None; self._latest_detections = []; self._lock = Lock(); self._incidents = Queue(); self._stop = Event(); self._thread = None; self._last_key = None
+        self.health = HealthMonitor(self.config.stale_frame_age_s)
+        self._latest = None
+        self._latest_detections = []
+        self._lock = Lock()
+        self._incidents = Queue()
+        self._stop = Event()
+        self._thread = None
+        self._last_key = None
         self._ever_started = False
         self._stopped = False
         self._last_success_at = None
@@ -58,9 +66,11 @@ class SentinelRuntime:
         # how old it is after inference finishes. Reading it after detect()
         # would make "camera frame age" measure inference latency instead.
         frame_age_ms = self.health.frame_age_ms()
-        detections, latency = self.detector.detect(packet.frame); self.health.record_detection()
+        detections, latency = self.detector.detect(packet.frame)
+        self.health.record_detection()
         occupancy = self.occupancy.map(detections, packet.frame.shape)
-        base = self.baseline.values(); load, accumulation, redistribution = self.risk.update(occupancy.grid, base)
+        base = self.baseline.values()
+        load, accumulation, redistribution = self.risk.update(occupancy.grid, base)
         primary, conditions, severity, confidence, code, action = self.scenario.evaluate(occupancy.grid, load, accumulation, redistribution, occupancy.hotspot_zone)
         self.baseline.update(occupancy.grid, abnormal=severity is not Severity.GREEN)
         snapshot = RiskSnapshot(datetime.now(timezone.utc), packet.frame_id, packet.source_mode, occupancy.people_count, occupancy.occupancy_index, occupancy.grid, self.baseline.state, load, accumulation, redistribution, primary, conditions, severity, confidence, occupancy.hotspot_zone, action, code, self.source.health(), frame_age_ms, latency, self.detector.model_version)
@@ -121,6 +131,11 @@ class SentinelRuntime:
                 return
             if not accepted:
                 self._incident_sink_failures += 1
+                if self._incident_sink_failures - getattr(self, '_incident_sink_successes', 0) >= 5:
+                    import logging
+                    logging.warning("Incident sink failed 5 consecutive times, discarding pending incident")
+                    self._pending_incident = None
+                    self._pending_incident_key = None
                 return
             self._incidents.put(candidate)
             self._last_key = self._pending_incident_key

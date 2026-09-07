@@ -1,4 +1,5 @@
 """Camera / video source capture wrapper with FPS throttling."""
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 from __future__ import annotations
 
 import time

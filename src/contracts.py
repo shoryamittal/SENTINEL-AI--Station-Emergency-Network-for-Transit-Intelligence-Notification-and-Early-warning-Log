@@ -117,6 +117,7 @@ class IncidentCandidate:
     recommended_action: str
     action_code: str
     model_version: str
+    people_count: int = 0
     source_mode: SourceMode | None = None
     frame_id: int | None = None
     event_id: str = field(default_factory=lambda: str(uuid4()))

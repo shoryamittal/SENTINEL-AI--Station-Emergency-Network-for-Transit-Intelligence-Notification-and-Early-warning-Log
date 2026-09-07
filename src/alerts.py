@@ -116,7 +116,7 @@ def optional_fast2sms_notifier(station_name: str = "Central Station"):
         system.send_rpf_notification(
             candidate.severity.value,
             candidate.load_anomaly + candidate.accumulation + candidate.redistribution,
-            0,
+            candidate.people_count,
         )
 
     return _notify

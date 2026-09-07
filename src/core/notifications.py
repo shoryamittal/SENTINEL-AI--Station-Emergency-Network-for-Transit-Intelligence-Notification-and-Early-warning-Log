@@ -5,6 +5,7 @@ sent unless both FAST2SMS_API_KEY and SENTINEL_SEND_REAL_SMS=1 are set in
 the environment (see docs/SECURITY_PRIVACY.md - never send real alerts from
 automated tests or CI).
 """
+# DEPRECATED: This module is superseded by the Round-2 pipeline in src/. Retained for reference only.
 from __future__ import annotations
 
 import logging
