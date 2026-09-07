@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import platform
+import logging
 import sys
 import time
 from pathlib import Path
@@ -43,6 +44,8 @@ class FramePacket:
 
 
 class FrameSource:
+    _logger = logging.getLogger("sentinel.camera")
+
     def __init__(self, source_mode: SourceMode, source: int | str | None = None,
                  simulation_factory: Callable[[], np.ndarray] | None = None,
                  stale_frame_age_s: float = 2.0, camera_failure_timeout_s: float = 5.0,
@@ -71,6 +74,7 @@ class FrameSource:
 
         self._capture_thread: Thread | None = None
         self._capture_stop = Event()
+        self._new_frame_event = Event()
 
     @staticmethod
     def list_camera_devices(max_index: int = 5) -> list[dict]:
@@ -256,6 +260,7 @@ class FrameSource:
                 backoff = min(2.0, 0.1 * consecutive_failures)
                 time.sleep(backoff)
                 if consecutive_failures >= 5:
+                    self._logger.warning("Camera handle is None after %d attempts, restarting capture", consecutive_failures)
                     consecutive_failures = 0
                     self._try_restart_capture()
                 continue
@@ -265,6 +270,7 @@ class FrameSource:
                 self._recovering = True
                 consecutive_failures += 1
                 if consecutive_failures >= 15:
+                    self._logger.warning("Camera read() failed %d consecutive times, restarting capture", consecutive_failures)
                     consecutive_failures = 0
                     self._try_restart_capture()
                     time.sleep(0.3)
@@ -273,6 +279,7 @@ class FrameSource:
                 continue
 
             if consecutive_failures > 0:
+                self._logger.info("Camera recovered after %d failed reads", consecutive_failures)
                 self._flush_buffers(6)
             consecutive_failures = 0
             self._recovering = False
@@ -292,9 +299,10 @@ class FrameSource:
             self._frame_id += 1
             packet = FramePacket(self._frame_id, datetime.now(timezone.utc), self.source_mode, frame)
             with self._latest_frame_lock:
-                self._latest_frame = frame.copy()
+                self._latest_frame = frame
                 self._latest_packet = packet
             self._last_success_mono = now
+            self._new_frame_event.set()
 
     def _try_restart_capture(self) -> bool:
         """Idempotent emergency restart for a live camera that stopped delivering frames.
@@ -437,6 +445,17 @@ class FrameSource:
         """
         with self._latest_frame_lock:
             return self._latest_packet.frame_id if self._latest_packet is not None else self._frame_id
+
+    def wait_for_new_frame(self, timeout: float = 0.1) -> bool:
+        """Block until the capture loop produces a new frame, or timeout.
+
+        Returns True if a new frame was signalled, False on timeout.
+        More efficient than polling get_latest_frame_id() in a sleep loop.
+        """
+        signalled = self._new_frame_event.wait(timeout=timeout)
+        if signalled:
+            self._new_frame_event.clear()
+        return signalled
 
     def health(self) -> CameraHealth:
         if self._recovering:

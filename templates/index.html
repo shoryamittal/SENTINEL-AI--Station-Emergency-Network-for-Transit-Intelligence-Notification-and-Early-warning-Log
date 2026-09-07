@@ -2126,7 +2126,7 @@
               <span class="cctv-tag">CAM-01: CONCOURSE &amp; TICKET HUB</span>
               <span class="cctv-live-badge">● LIVE 30 FPS</span>
             </div>
-            <img class="cctv-img" src="/cctv-feed/1" alt="CAM-01 Concourse Feed" loading="lazy">
+            <img class="cctv-img" src="/cctv-feed/1" alt="CAM-01 Concourse Feed" loading="lazy" onerror="cctvFeedError(this,1)">
             <div class="cctv-foot">
               <span class="cctv-zone-info">Zone 8 Concourse · Normal Flow</span>
               <button class="cctv-focus-btn" onclick="focusCctvChannel(1)">FOCUS</button>
@@ -2152,7 +2152,7 @@
               <span class="cctv-tag">CAM-03: NORTH FOOT OVER BRIDGE</span>
               <span class="cctv-live-badge">● LIVE 30 FPS</span>
             </div>
-            <img class="cctv-img" src="/cctv-feed/3" alt="CAM-03 Foot Over Bridge Feed" loading="lazy">
+            <img class="cctv-img" src="/cctv-feed/3" alt="CAM-03 Foot Over Bridge Feed" loading="lazy" onerror="cctvFeedError(this,3)">
             <div class="cctv-foot">
               <span class="cctv-zone-info">Zone 5 FOB &amp; Exit · Clearance Path</span>
               <button class="cctv-focus-btn" onclick="focusCctvChannel(3)">FOCUS</button>
@@ -2165,7 +2165,7 @@
               <span class="cctv-tag">CAM-04: ENTRY TURNSTILES GATE 1</span>
               <span class="cctv-live-badge">● LIVE 30 FPS</span>
             </div>
-            <img class="cctv-img" src="/cctv-feed/4" alt="CAM-04 Turnstile Entry Feed" loading="lazy">
+            <img class="cctv-img" src="/cctv-feed/4" alt="CAM-04 Turnstile Entry Feed" loading="lazy" onerror="cctvFeedError(this,4)">
             <div class="cctv-foot">
               <span class="cctv-zone-info">Zone 1 Entry Gate · Flow Ingress</span>
               <button class="cctv-focus-btn" onclick="focusCctvChannel(4)">FOCUS</button>
@@ -3200,7 +3200,7 @@
   </main>
 </div>
 
-<img id="camera-feed" src="/camera-feed" loading="eager" alt="SENTINEL local camera feed" style="display:none;" onload="if(typeof hideCamLoading==='function')hideCamLoading();" onerror="if(typeof hideCamLoading==='function')hideCamLoading();">
+<img id="camera-feed" src="/camera-feed" loading="eager" alt="SENTINEL local camera feed" style="display:none;" onload="if(typeof hideCamLoading==='function')hideCamLoading();if(typeof _camFeedOk==='function')_camFeedOk();" onerror="if(typeof hideCamLoading==='function')hideCamLoading();if(typeof _camFeedErr==='function')_camFeedErr(this);">
 <video id="simulation-feed" src="/data/demo/crowd_station.mp4" autoplay loop muted playsinline style="display:none;" onplaying="if(typeof hideCamLoading==='function')hideCamLoading();"></video>
 
 <!-- FORENSIC INCIDENT AUDIT DOSSIER MODAL -->
@@ -4106,12 +4106,12 @@ function renderAlerts(localAlerts) {
   });
 }
 function acknowledgeAlert(eventId) {
-  fetch('/alerts/' + encodeURIComponent(eventId) + '/ack', { method: 'POST' }).then(function () { updateUI(); }).catch(function () {});
+  fetch('/alerts/' + encodeURIComponent(eventId) + '/ack', { method: 'POST' }).then(function () { updateUI(); }).catch(function () { toast('error', 'Acknowledge failed', 'Could not reach the server. Please retry.'); });
 }
 
 function forceConnectivity(state) {
   const url = '/debug/connectivity' + (state ? ('?state=' + state) : '');
-  fetch(url, { method: 'POST' }).catch(function () {});
+  fetch(url, { method: 'POST' }).catch(function () { toast('error', 'Debug action failed', 'Could not reach the server.'); });
 }
 
 // ------------------------------------------------------------------
@@ -4134,7 +4134,7 @@ function setOperatingMode(mode) {
         setTimeout(reloadCameraFeed, 300);
       }
     })
-    .catch(function () {})
+    .catch(function () { toast('error', 'Mode switch failed', 'Could not reach the server.'); })
     .finally(function () { modeSwitchInFlight = false; });
 }
 function uploadSimulationVideo(event) {
@@ -4794,6 +4794,53 @@ function reloadCameraFeed() {
   toast('info', 'Camera feed reloading', 'Requesting a fresh stream from the capture backend.');
 }
 
+// Camera feed error fallback: show placeholder SVG + auto-retry
+var _camRetryTimer = null;
+function _camFeedErr(img) {
+  // Show placeholder SVG background on all camera slots
+  _eachCamScope(function (scope) {
+    var slot = document.getElementById('camera-slot-' + scope);
+    if (slot) {
+      slot.style.backgroundImage = 'url(/camera-placeholder.svg)';
+      slot.style.backgroundSize = 'cover';
+      slot.style.backgroundPosition = 'center';
+    }
+  });
+  // Auto-retry after 3 seconds
+  if (_camRetryTimer) clearTimeout(_camRetryTimer);
+  _camRetryTimer = setTimeout(function () {
+    _camRetryTimer = null;
+    reloadCameraFeed();
+  }, 3000);
+}
+function _camFeedOk() {
+  // Clear placeholder background on successful load
+  _eachCamScope(function (scope) {
+    var slot = document.getElementById('camera-slot-' + scope);
+    if (slot) slot.style.backgroundImage = '';
+  });
+  if (_camRetryTimer) { clearTimeout(_camRetryTimer); _camRetryTimer = null; }
+}
+
+// CCTV channel error handler with auto-retry
+function cctvFeedError(img, camId) {
+  img.style.opacity = '0.3';
+  var parent = img.parentElement;
+  if (parent && !parent.querySelector('.cctv-lost-label')) {
+    var lbl = document.createElement('div');
+    lbl.className = 'cctv-lost-label';
+    lbl.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ff4466;font-weight:800;font-size:.85rem;letter-spacing:.06em;text-shadow:0 2px 8px rgba(0,0,0,.6);z-index:2;pointer-events:none;';
+    lbl.textContent = 'SIGNAL LOST — RETRYING…';
+    parent.style.position = 'relative';
+    parent.appendChild(lbl);
+  }
+  setTimeout(function () {
+    img.src = '/cctv-feed/' + camId + '?_t=' + Date.now();
+    img.style.opacity = '1';
+    var lost = parent && parent.querySelector('.cctv-lost-label');
+    if (lost) lost.remove();
+  }, 4000);
+}
 // ================================================================
 // CAMERA CONTROLS PANEL — device list, tuning sliders, apply/reset.
 // ================================================================
@@ -4999,6 +5046,7 @@ function _patchRenderWithCameraUX(data) {
   if (camHealth !== _lastCamHealth) {
     if (camHealth === 'LIVE' && _lastCamHealth && _lastCamHealth !== 'LIVE') {
       toast('success', 'Camera is LIVE', 'Frame delivery restored. Detection and preview are current.');
+      reloadCameraFeed();
     } else if (_lastCamHealth === 'LIVE' && ['CAMERA_LOST','INPUT_RECOVERING'].includes(camHealth)) {
       toast('warning', 'Camera feed degraded', `Health: ${camHealth}. Auto-recovery running in the background.`);
       showCamLoading(camHealth === 'CAMERA_LOST' ? 'NO CAMERA SIGNAL — retrying…' : 'RECOVERING CAMERA SIGNAL…');

@@ -364,6 +364,8 @@ def _build_runtime(source_mode, source_value, settings: dict | None = None) -> S
             brightness=s.get("brightness"),
             contrast=s.get("contrast"),
             exposure=s.get("exposure"),
+            stale_frame_age_s=runtime_config.stale_frame_age_s,
+            camera_failure_timeout_s=runtime_config.camera_failure_timeout_s,
         ),
         detector=_shared_detector,
         config=runtime_config,
@@ -635,7 +637,7 @@ def _draw_detection_overlay(frame, detections, people_count=None, is_black=False
     import numpy as np
 
     h, w = frame.shape[:2]
-    annotated = frame.copy()
+    annotated = frame  # caller passes a defensive copy; no need to copy again
 
     # If the frame is pitch-black, render a diagnostic banner to help the user
     if is_black:
@@ -731,19 +733,17 @@ def _camera_mjpeg_stream():
     """
     import cv2
 
-    _JPEG_QUALITY = [int(cv2.IMWRITE_JPEG_QUALITY), 95]
-    _JPEG_OPTIMIZE = [int(cv2.IMWRITE_JPEG_OPTIMIZE), 1]
-    _encode_params = _JPEG_QUALITY + _JPEG_OPTIMIZE
+    _JPEG_QUALITY = [int(cv2.IMWRITE_JPEG_QUALITY), 82]
 
     last_sent_frame_id = -1
     while True:
         current_frame_id = runtime.source.get_latest_frame_id()
         if current_frame_id == last_sent_frame_id:
-            time.sleep(0.01)
+            runtime.source.wait_for_new_frame(timeout=0.05)
             continue
         raw_frame = runtime.source.get_latest_frame()
         if raw_frame is None:
-            time.sleep(0.03)
+            runtime.source.wait_for_new_frame(timeout=0.05)
             continue
 
         # Check if frame is pitch-black (e.g. physical privacy shutter closed)
@@ -762,10 +762,10 @@ def _camera_mjpeg_stream():
         except Exception:
             pass
 
-        # Overlay bounding boxes and HUD
+        # Overlay bounding boxes and HUD (raw_frame is already a defensive copy)
         display_frame = _draw_detection_overlay(raw_frame, detections, people_count=people_count, is_black=is_black)
 
-        encoded, buffer = cv2.imencode(".jpg", display_frame, _encode_params)
+        encoded, buffer = cv2.imencode(".jpg", display_frame, _JPEG_QUALITY)
         if not encoded:
             time.sleep(0.03)
             continue
