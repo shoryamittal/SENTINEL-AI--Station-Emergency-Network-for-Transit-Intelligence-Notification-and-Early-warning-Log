@@ -108,15 +108,19 @@ color:#f1f5f9;font-size:.88rem;margin-bottom:18px;outline:none;transition:border
 .login-card button{width:100%;padding:12px;background:linear-gradient(135deg,#00f0ff,#00cc77);color:#04070c;font-weight:800;
 font-size:.85rem;border:none;border-radius:8px;cursor:pointer;letter-spacing:.04em;transition:transform .15s,box-shadow .15s}
 .login-card button:hover{transform:translateY(-1px);box-shadow:0 8px 30px rgba(0,240,255,.25)}
+.bypass-btn{display:block;width:100%;margin-top:14px;padding:10px;text-align:center;text-decoration:none;background:rgba(255,255,255,.06);color:#00f0ff;border:1px dashed rgba(0,240,255,.4);border-radius:8px;font-size:.82rem;font-weight:700;letter-spacing:.03em;transition:all .15s}
+.bypass-btn:hover{background:rgba(0,240,255,.12);border-color:#00f0ff;color:#fff;box-shadow:0 4px 18px rgba(0,240,255,.2)}
 .err{color:#ff4466;font-size:.78rem;margin-bottom:14px;text-align:center}
 .brand-line{text-align:center;margin-bottom:28px;font-size:.68rem;color:#8b9cb8}
 </style></head><body><form class="login-card" method="POST" action="/login">
 <h1>SENTINEL AI</h1><p>भारत सरकार · Indian Railways · Station Operations Console</p>
 <div class="brand-line">Authorized Personnel Only · अधिकृत कर्मचारी केवल</div>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
-<label for="username">Username / उपयोगकर्ता नाम</label><input id="username" name="username" type="text" required autofocus placeholder="Enter username">
-<label for="password">Password / पासवर्ड</label><input id="password" name="password" type="password" required placeholder="Enter password">
-<button type="submit">LOGIN · लॉगिन</button></form></body></html>"""
+<label for="username">Username / उपयोगकर्ता नाम</label><input id="username" name="username" type="text" required autofocus placeholder="Enter username (default: admin)">
+<label for="password">Password / पासवर्ड</label><input id="password" name="password" type="password" required placeholder="Enter password (default: sentinel2026)">
+<button type="submit">LOGIN · लॉगिन</button>
+<a href="/login/bypass" class="bypass-btn">⚡ DEMO / EVALUATOR BYPASS · बाईपास लॉगिन</a>
+</form></body></html>"""
 
 
 def login_required(f):
@@ -140,6 +144,14 @@ def login_page():
             return redirect("/")
         return render_template_string(_LOGIN_HTML, error="Invalid credentials · अमान्य साख"), 401
     return render_template_string(_LOGIN_HTML, error=None)
+
+
+@app.route("/login/bypass", methods=["GET", "POST"])
+def login_bypass():
+    """1-Click evaluator bypass: immediately authenticate session and open dashboard."""
+    session["authenticated"] = True
+    session["user"] = "evaluator"
+    return redirect("/")
 
 
 @app.route("/logout")
